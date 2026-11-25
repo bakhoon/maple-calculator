@@ -38,7 +38,7 @@ const DEFAULT_RATES = {
   gea: { daily: 10, weekly: 0 },
 };
 
-const makeChar = (name = "새 캐릭터", rates = DEFAULT_RATES) => ({
+const makeChar = (name = "캐릭터", rates = DEFAULT_RATES) => ({
   id: newId(),
   name,
   cls: "normal",
@@ -55,33 +55,29 @@ const makeChar = (name = "새 캐릭터", rates = DEFAULT_RATES) => ({
   },
 });
 
-const defaultState = () => ({
-  includeToday: true,
-  rates: DEFAULT_RATES,
-  chars: [makeChar("캐릭터 1")],
-});
+const defaultState = () => {
+  const first = makeChar("캐릭터 1");
+  return { includeToday: true, activeId: first.id, chars: [first] };
+};
 
 function loadState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (parsed && parsed.chars && parsed.rates) {
-        // 이전 버전 데이터: 캐릭터별 수급량이 없으면 공통 기본값으로 채운다
-        for (const sym of SYMBOLS) {
-          if (!parsed.rates[sym.key]) parsed.rates[sym.key] = { ...DEFAULT_RATES[sym.key] };
-        }
+      if (parsed && Array.isArray(parsed.chars) && parsed.chars.length > 0) {
+        // 이전 버전 데이터 보정: 빠진 심볼이나 수급량은 기본값으로 채운다
         for (const c of parsed.chars) {
           for (const sym of SYMBOLS) {
-            if (!c.symbols[sym.key]) {
-              c.symbols[sym.key] = { on: false, level: 1, progress: 0 };
-            }
+            if (!c.symbols[sym.key]) c.symbols[sym.key] = { on: false, level: 1, progress: 0 };
             const cfg = c.symbols[sym.key];
-            if (cfg.daily === undefined) cfg.daily = parsed.rates[sym.key].daily;
-            if (cfg.weekly === undefined) cfg.weekly = parsed.rates[sym.key].weekly;
+            if (cfg.daily === undefined) cfg.daily = DEFAULT_RATES[sym.key].daily;
+            if (cfg.weekly === undefined) cfg.weekly = DEFAULT_RATES[sym.key].weekly;
           }
         }
-        return parsed;
+        if (!parsed.chars.some((c) => c.id === parsed.activeId)) parsed.activeId = parsed.chars[0].id;
+        if (parsed.includeToday === undefined) parsed.includeToday = true;
+        return { includeToday: parsed.includeToday, activeId: parsed.activeId, chars: parsed.chars };
       }
     }
   } catch {
@@ -174,10 +170,10 @@ export default function App() {
     }));
 
   const addChar = () =>
-    setState((s) => ({
-      ...s,
-      chars: [...s.chars, makeChar(`캐릭터 ${s.chars.length + 1}`, s.rates)],
-    }));
+    setState((s) => {
+      const c = makeChar(`캐릭터 ${s.chars.length + 1}`);
+      return { ...s, chars: [...s.chars, c], activeId: c.id };
+    });
 
   const copyChar = (id) =>
     setState((s) => {
@@ -186,21 +182,27 @@ export default function App() {
       const copy = JSON.parse(JSON.stringify(src));
       copy.id = newId();
       copy.name = `${src.name} 복사`;
-      return { ...s, chars: [...s.chars, copy] };
+      return { ...s, chars: [...s.chars, copy], activeId: copy.id };
     });
 
-  const removeChar = (id) =>
-    setState((s) => ({ ...s, chars: s.chars.filter((c) => c.id !== id) }));
+  const removeChar = (id) => {
+    const target = state.chars.find((c) => c.id === id);
+    if (!confirm(`"${target ? target.name : ""}" 캐릭터를 삭제할까요?`)) return;
+    setState((s) => {
+      const chars = s.chars.filter((c) => c.id !== id);
+      const activeId = s.activeId === id ? chars[0].id : s.activeId;
+      return { ...s, chars, activeId };
+    });
+  };
 
-  const setRate = (key, field, value) =>
-    setState((s) => ({
-      ...s,
-      rates: { ...s.rates, [key]: { ...s.rates[key], [field]: value } },
-    }));
+  const setActive = (id) => setState((s) => ({ ...s, activeId: id }));
 
   const resetAll = () => {
     if (confirm("모든 캐릭터와 설정을 초기화할까요?")) setState(defaultState());
   };
+
+  const activeIndex = Math.max(0, state.chars.findIndex((c) => c.id === state.activeId));
+  const activeChar = state.chars[activeIndex];
 
   const grandMeso = results.reduce((a, r) => a + r.totalMeso, 0);
 
@@ -227,49 +229,43 @@ export default function App() {
             오늘 일일퀘스트도 아직 안 했으면 포함
           </label>
         </div>
-
-        <table className="rates">
-          <thead>
-            <tr>
-              <th>심볼</th>
-              <th>새 캐릭터 기본 일일 성장치</th>
-              <th>새 캐릭터 기본 주간 성장치 (목요일)</th>
-              <th>MAX까지 총 성장치</th>
-            </tr>
-          </thead>
-          <tbody>
-            {SYMBOLS.map((s) => (
-              <tr key={s.key}>
-                <td>
-                  <span className="dot" style={{ background: s.color }} />
-                  {s.name}
-                </td>
-                <td>
-                  <input
-                    type="number"
-                    min="0"
-                    value={state.rates[s.key].daily}
-                    onChange={(e) => setRate(s.key, "daily", e.target.value)}
-                  />
-                </td>
-                <td>
-                  <input
-                    type="number"
-                    min="0"
-                    value={state.rates[s.key].weekly}
-                    onChange={(e) => setRate(s.key, "weekly", e.target.value)}
-                  />
-                </td>
-                <td>{TOTAL_GROWTH.toLocaleString()}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
         <p className="hint">
-          여기 값은 새 캐릭터를 추가할 때 들어가는 기본값입니다. 이미 만든 캐릭터의 수급량은 각 캐릭터 카드에서
-          심볼별로 따로 수정하세요.
+          캐릭터 탭마다 심볼별로 일일퀘스트 하루 획득량, 현재 레벨, 현재 보유 성장치를 입력하세요. 입력한 내용은 이
+          브라우저에 자동 저장돼서 다시 열어도 그대로 남아요. (다른 컴퓨터나 다른 브라우저와는 공유되지 않아요)
         </p>
       </section>
+
+      <div className="tabs" role="tablist">
+        {state.chars.map((c) => (
+          <button
+            key={c.id}
+            role="tab"
+            aria-selected={c.id === state.activeId}
+            className={`tab ${c.id === state.activeId ? "active" : ""}`}
+            onClick={() => setActive(c.id)}
+          >
+            {c.name || "(이름 없음)"}
+          </button>
+        ))}
+        <button className="tab add" onClick={addChar} title="캐릭터 추가">
+          +
+        </button>
+      </div>
+
+      {activeChar && (
+        <CharCard
+          key={activeChar.id}
+          c={activeChar}
+          r={results[activeIndex]}
+          startDate={startDate}
+          includeToday={state.includeToday}
+          onChange={(patch) => updateChar(activeChar.id, patch)}
+          onSymbol={(key, patch) => updateSymbol(activeChar.id, key, patch)}
+          onCopy={() => copyChar(activeChar.id)}
+          onRemove={() => removeChar(activeChar.id)}
+          canRemove={state.chars.length > 1}
+        />
+      )}
 
       <section className="card">
         <div className="row-between">
@@ -342,25 +338,7 @@ export default function App() {
         />
       </section>
 
-      {state.chars.map((c, i) => (
-        <CharCard
-          key={c.id}
-          c={c}
-          r={results[i]}
-          startDate={startDate}
-          includeToday={state.includeToday}
-          onChange={(patch) => updateChar(c.id, patch)}
-          onSymbol={(key, patch) => updateSymbol(c.id, key, patch)}
-          onCopy={() => copyChar(c.id)}
-          onRemove={() => removeChar(c.id)}
-          canRemove={state.chars.length > 1}
-        />
-      ))}
-
       <div className="actions">
-        <button className="primary" onClick={addChar}>
-          + 캐릭터 추가
-        </button>
         <button onClick={() => setShowTable((v) => !v)}>
           {showTable ? "기준 테이블 닫기" : "기준 테이블 보기"}
         </button>
@@ -476,7 +454,7 @@ function CharCard({ c, r, startDate, includeToday, onChange, onSymbol, onCopy, o
 
               <div className="inputs">
                 <label className="field">
-                  <span>현재 레벨</span>
+                  <span>현재 레벨 (1~11)</span>
                   <select
                     value={cfg.level}
                     disabled={!cfg.on}
@@ -494,7 +472,7 @@ function CharCard({ c, r, startDate, includeToday, onChange, onSymbol, onCopy, o
                 </label>
                 <label className="field">
                   <span>
-                    현재 성장치{need ? ` / ${need}` : ""}
+                    현재 보유 성장치{need ? ` / ${need}` : ""}
                   </span>
                   <input
                     type="number"
@@ -509,7 +487,7 @@ function CharCard({ c, r, startDate, includeToday, onChange, onSymbol, onCopy, o
 
               <div className="inputs rate-inputs">
                 <label className="field">
-                  <span>일일 성장치</span>
+                  <span>일일퀘스트 하루 획득</span>
                   <input
                     type="number"
                     min="0"
@@ -519,7 +497,7 @@ function CharCard({ c, r, startDate, includeToday, onChange, onSymbol, onCopy, o
                   />
                 </label>
                 <label className="field">
-                  <span>주간 추가 (목)</span>
+                  <span>주간 추가 (선택, 목)</span>
                   <input
                     type="number"
                     min="0"
