@@ -484,3 +484,44 @@ th {
   color: var(--primary);
   font-weight: 700;
 }
+
+.events {
+  margin-bottom: 16px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #171a22;
+}
+
+.sub-title.no-top {
+  margin: 0;
+}
+
+.event-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.event-row .field input,
+.event-row .field select {
+  width: 150px;
+}
+
+.event-row .field:first-child input {
+  width: 160px;
+}
+
+.warnings {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  background: #3a2f1c;
+  border: 1px solid #6b5522;
+  color: #ffd98a;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.6;
+}

@@ -16,6 +16,8 @@ import { LevelChart, CompareChart } from "./Charts.jsx";
 import {
   simulateSymbol,
   requiredDaily,
+  normalizeEvents,
+  findEventOverlaps,
   formatDate,
   formatMeso,
   parseDate,
@@ -43,6 +45,7 @@ const makeChar = (name = "캐릭터", rates = DEFAULT_RATES) => ({
   name,
   cls: "normal",
   target: "",
+  events: [],
   symbols: {
     cer: { on: true, level: 1, progress: 0, ...rates.cer },
     arc: { on: false, level: 1, progress: 0, ...rates.arc },
@@ -75,6 +78,7 @@ function loadState() {
             if (cfg.weekly === undefined) cfg.weekly = DEFAULT_RATES[sym.key].weekly;
           }
         }
+        for (const c of parsed.chars) if (!Array.isArray(c.events)) c.events = [];
         if (!parsed.chars.some((c) => c.id === parsed.activeId)) parsed.activeId = parsed.chars[0].id;
         if (parsed.includeToday === undefined) parsed.includeToday = true;
         return { includeToday: parsed.includeToday, activeId: parsed.activeId, chars: parsed.chars };
@@ -127,6 +131,7 @@ export default function App() {
           weekly: num(cfg.weekly),
           startDate,
           includeToday: state.includeToday,
+          events: normalizeEvents(c.events, s.key),
         });
         perSymbol[s.key] = sim;
         if (!cfg.on) continue;
@@ -408,6 +413,8 @@ function CharCard({ c, r, startDate, includeToday, onChange, onSymbol, onCopy, o
         </span>
       </div>
 
+      <EventEditor events={c.events || []} onChange={(events) => onChange({ events })} />
+
       <div className="target-row">
         <label className="field">
           <span>목표 날짜 (선택)</span>
@@ -538,6 +545,7 @@ function CharCard({ c, r, startDate, includeToday, onChange, onSymbol, onCopy, o
                       startDate,
                       includeToday,
                       targetDate: target,
+                      events: normalizeEvents(c.events, s.key),
                     });
                     const ok = sim.maxDate && sim.maxDate <= target;
                     return (
@@ -658,5 +666,109 @@ function RefTable() {
         </table>
       </div>
     </section>
+  );
+}
+
+const fmtShort = (d) => `${d.getMonth() + 1}.${String(d.getDate()).padStart(2, "0")}`;
+
+function EventEditor({ events, onChange }) {
+  const add = () =>
+    onChange([
+      ...events,
+      {
+        id: newId(),
+        name: `이벤트 ${events.length + 1}`,
+        symbol: "all",
+        amount: 5,
+        start: "",
+        end: "",
+      },
+    ]);
+  const update = (id, patch) => onChange(events.map((e) => (e.id === id ? { ...e, ...patch } : e)));
+  const remove = (id) => onChange(events.filter((e) => e.id !== id));
+
+  const overlaps = findEventOverlaps(events);
+  const nameOf = (e) => e.name || "(이름 없음)";
+  const warnings = [];
+
+  for (const e of events) {
+    if (!e.start || !e.end) {
+      warnings.push(`"${nameOf(e)}": 시작일과 종료일을 모두 넣어야 계산에 반영돼요.`);
+    } else if (parseDate(e.end) < parseDate(e.start)) {
+      warnings.push(`"${nameOf(e)}": 종료일이 시작일보다 앞서 있어서 계산에 반영되지 않아요.`);
+    }
+    if (!(Number(e.amount) > 0)) {
+      warnings.push(`"${nameOf(e)}": 하루 수량이 0보다 커야 계산에 반영돼요.`);
+    }
+  }
+  for (const o of overlaps) {
+    const range =
+      o.from.getTime() === o.to.getTime() ? fmtShort(o.from) : `${fmtShort(o.from)} ~ ${fmtShort(o.to)}`;
+    warnings.push(
+      `"${nameOf(o.a)}" 와(과) "${nameOf(o.b)}" 이벤트 날짜가 ${range}에 겹쳐요. 겹치는 날에는 두 수량이 모두 더해져요.`
+    );
+  }
+
+  return (
+    <div className="events">
+      <div className="row-between">
+        <h3 className="sub-title no-top">이벤트</h3>
+        <button onClick={add}>+ 이벤트 추가</button>
+      </div>
+
+      {events.length === 0 && (
+        <p className="hint">
+          이 캐릭터만의 이벤트가 있으면 추가하세요. 기간 동안 하루에 더 얻는 수량이 일일퀘스트 획득량에 더해져서 계산돼요.
+        </p>
+      )}
+
+      {events.map((e) => (
+        <div className="event-row" key={e.id}>
+          <label className="field">
+            <span>이름</span>
+            <input value={e.name} onChange={(ev) => update(e.id, { name: ev.target.value })} />
+          </label>
+          <label className="field">
+            <span>적용 심볼</span>
+            <select value={e.symbol} onChange={(ev) => update(e.id, { symbol: ev.target.value })}>
+              <option value="all">전체 심볼</option>
+              {SYMBOLS.map((x) => (
+                <option key={x.key} value={x.key}>
+                  {x.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            <span>하루 추가 수량</span>
+            <input
+              type="number"
+              min="0"
+              value={e.amount}
+              onChange={(ev) => update(e.id, { amount: ev.target.value })}
+            />
+          </label>
+          <label className="field">
+            <span>시작일</span>
+            <input type="date" value={e.start} onChange={(ev) => update(e.id, { start: ev.target.value })} />
+          </label>
+          <label className="field">
+            <span>종료일</span>
+            <input type="date" value={e.end} onChange={(ev) => update(e.id, { end: ev.target.value })} />
+          </label>
+          <button className="danger" onClick={() => remove(e.id)}>
+            삭제
+          </button>
+        </div>
+      ))}
+
+      {warnings.length > 0 && (
+        <ul className="warnings" role="alert">
+          {warnings.map((w, i) => (
+            <li key={i}>⚠ {w}</li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
