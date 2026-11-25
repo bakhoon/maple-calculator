@@ -9,6 +9,7 @@ import {
   CUM_MESO,
   STAT_AT,
   autAt,
+  GRAND_BONUS_AT,
   TOTAL_GROWTH,
 } from "./data.js";
 import {
@@ -28,6 +29,11 @@ const DEFAULT_RATES = {
   cer: { daily: 10, weekly: 0 },
   arc: { daily: 10, weekly: 0 },
   odi: { daily: 10, weekly: 0 },
+  dow: { daily: 10, weekly: 0 },
+  art: { daily: 10, weekly: 0 },
+  car: { daily: 10, weekly: 0 },
+  tal: { daily: 10, weekly: 0 },
+  gea: { daily: 10, weekly: 0 },
 };
 
 const makeChar = (name = "새 캐릭터", rates = DEFAULT_RATES) => ({
@@ -38,6 +44,11 @@ const makeChar = (name = "새 캐릭터", rates = DEFAULT_RATES) => ({
     cer: { on: true, level: 1, progress: 0, ...rates.cer },
     arc: { on: false, level: 1, progress: 0, ...rates.arc },
     odi: { on: false, level: 1, progress: 0, ...rates.odi },
+    dow: { on: false, level: 1, progress: 0, ...rates.dow },
+    art: { on: false, level: 1, progress: 0, ...rates.art },
+    car: { on: false, level: 1, progress: 0, ...rates.car },
+    tal: { on: false, level: 1, progress: 0, ...rates.tal },
+    gea: { on: false, level: 1, progress: 0, ...rates.gea },
   },
 });
 
@@ -55,8 +66,14 @@ function loadState() {
       const parsed = JSON.parse(raw);
       if (parsed && parsed.chars && parsed.rates) {
         // 이전 버전 데이터: 캐릭터별 수급량이 없으면 공통 기본값으로 채운다
+        for (const sym of SYMBOLS) {
+          if (!parsed.rates[sym.key]) parsed.rates[sym.key] = { ...DEFAULT_RATES[sym.key] };
+        }
         for (const c of parsed.chars) {
           for (const sym of SYMBOLS) {
+            if (!c.symbols[sym.key]) {
+              c.symbols[sym.key] = { on: false, level: 1, progress: 0 };
+            }
             const cfg = c.symbols[sym.key];
             if (cfg.daily === undefined) cfg.daily = parsed.rates[sym.key].daily;
             if (cfg.weekly === undefined) cfg.weekly = parsed.rates[sym.key].weekly;
@@ -130,7 +147,7 @@ export default function App() {
         const cfg = c.symbols[s.key];
         if (!cfg.on) continue;
         aut += autAt(cfg.level);
-        stat += STAT_AT[c.cls][cfg.level - 1];
+        if (!s.grand) stat += STAT_AT[c.cls][cfg.level - 1];
       }
 
       return { perSymbol, latest, impossible, totalMeso, allMax: anyOn && allMax, anyOn, aut, stat };
@@ -406,7 +423,17 @@ function CharCard({ c, r, startDate, onChange, onSymbol, onCopy, onRemove, canRe
                 />
                 <span className="dot" style={{ background: s.color }} />
                 {s.name}
+                {s.grand && <span className="tag">그랜드</span>}
               </label>
+
+              {s.grand && cfg.on && (
+                <div className="bonus">
+                  {(() => {
+                    const b = GRAND_BONUS_AT(cfg.level);
+                    return `경험치 +${b.exp}% / 메소 +${b.meso}% / 드롭 +${b.drop}%`;
+                  })()}
+                </div>
+              )}
 
               <div className="inputs">
                 <label className="field">
@@ -543,21 +570,25 @@ function RefTable() {
               <th rowSpan="2">레벨</th>
               <th rowSpan="2">AUT</th>
               <th colSpan="3">스탯 증가량</th>
+              <th colSpan="3">그랜드 보너스</th>
               <th rowSpan="2">필요 성장치</th>
-              <th colSpan="3">필요 메소</th>
+              <th colSpan={SYMBOLS.length}>필요 메소</th>
               <th rowSpan="2">누적 성장치</th>
-              <th colSpan="3">누적 메소</th>
+              <th colSpan={SYMBOLS.length}>누적 메소</th>
             </tr>
             <tr>
               <th>일반</th>
               <th>제논</th>
               <th>데몬어벤져</th>
-              <th>세르니움</th>
-              <th>아르크스</th>
-              <th>오디움</th>
-              <th>세르니움</th>
-              <th>아르크스</th>
-              <th>오디움</th>
+              <th>경험치</th>
+              <th>메소</th>
+              <th>드롭</th>
+              {SYMBOLS.map((x) => (
+                <th key={`n-${x.key}`}>{x.name}</th>
+              ))}
+              {SYMBOLS.map((x) => (
+                <th key={`c-${x.key}`}>{x.name}</th>
+              ))}
             </tr>
           </thead>
           <tbody>
@@ -570,12 +601,15 @@ function RefTable() {
                   <td>{fmt(STAT_AT.normal[lv - 1])}</td>
                   <td>{fmt(STAT_AT.xenon[lv - 1])}</td>
                   <td>{fmt(STAT_AT.da[lv - 1])}</td>
+                  <td>{GRAND_BONUS_AT(lv).exp}%</td>
+                  <td>{GRAND_BONUS_AT(lv).meso}%</td>
+                  <td>{GRAND_BONUS_AT(lv).drop}%</td>
                   <td>{last ? "MAX" : fmt(NEED_GROWTH[lv - 1])}</td>
-                  {["cer", "arc", "odi"].map((k) => (
+                  {SYMBOLS.map(({ key: k }) => (
                     <td key={k}>{last ? "-" : fmt(NEED_MESO[k][lv - 1])}</td>
                   ))}
                   <td>{fmt(CUM_GROWTH[lv - 1])}</td>
-                  {["cer", "arc", "odi"].map((k) => (
+                  {SYMBOLS.map(({ key: k }) => (
                     <td key={k}>{fmt(CUM_MESO[k][lv - 1])}</td>
                   ))}
                 </tr>

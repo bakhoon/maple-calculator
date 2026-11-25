@@ -7,7 +7,19 @@ export const SYMBOLS = [
   { key: "cer", name: "세르니움", color: "#4aa3ff" },
   { key: "arc", name: "아르크스", color: "#c58bff" },
   { key: "odi", name: "오디움", color: "#ff7a8a" },
+  { key: "dow", name: "도원경", color: "#ffb454" },
+  { key: "art", name: "아르테리아", color: "#4fd1c5" },
+  { key: "car", name: "카르시온", color: "#a3e635" },
+  { key: "tal", name: "탈라하트", color: "#f472b6", grand: true },
+  { key: "gea", name: "기어드락", color: "#94a3b8", grand: true },
 ];
+
+// 그랜드 어센틱 심볼은 스탯 대신 경험치, 메소, 아이템 드롭률 보너스를 준다
+export const GRAND_BONUS_AT = (level) => ({
+  exp: 4 * level + 6,
+  meso: level + 4,
+  drop: level + 4,
+});
 
 export const CLASS_TYPES = [
   { key: "normal", name: "일반", statLabel: "스탯" },
@@ -42,6 +54,26 @@ export const NEED_MESO = {
     46900000, 118500000, 211500000, 322500000, 448500000,
     586000000, 732000000, 883200000, 1036200000, 1188000000,
   ],
+  dow: [
+    52200000, 132200000, 236800000, 362800000, 507000000,
+    666000000, 836600000, 1015600000, 1199800000, 1386000000,
+  ],
+  art: [
+    57400000, 145900000, 262200000, 403200000, 565500000,
+    745900000, 941200000, 1148100000, 1363500000, 1584000000,
+  ],
+  car: [
+    62600000, 159600000, 287600000, 443500000, 624000000,
+    825800000, 1045800000, 1280600000, 1527100000, 1782000000,
+  ],
+  tal: [
+    113600000, 293300000, 535800000, 837700000, 1196000000,
+    1607200000, 2068300000, 2576000000, 3126900000, 3718000000,
+  ],
+  gea: [
+    139700000, 361700000, 662700000, 1039300000, 1488500000,
+    2006800000, 2591200000, 3238400000, 3945000000, 4708000000,
+  ],
 };
 
 // 누적 성장치 / 누적 메소: 레벨 L에 도달하기까지 쓴 총량 (인덱스 0 = 레벨 1 = 0)
@@ -56,6 +88,11 @@ export const CUM_MESO = {
   cer: cumulative(NEED_MESO.cer),
   arc: cumulative(NEED_MESO.arc),
   odi: cumulative(NEED_MESO.odi),
+  dow: cumulative(NEED_MESO.dow),
+  art: cumulative(NEED_MESO.art),
+  car: cumulative(NEED_MESO.car),
+  tal: cumulative(NEED_MESO.tal),
+  gea: cumulative(NEED_MESO.gea),
 };
 
 export const TOTAL_GROWTH = CUM_GROWTH[MAX_LEVEL - 1]; // 4565

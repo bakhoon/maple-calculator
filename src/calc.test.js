@@ -16,6 +16,11 @@ for (let n = 1; n <= 10; n++) {
   assert.equal(NEED_MESO.cer[n - 1], f(-5.4 * n ** 3 + 106.8 * n ** 2 + 264 * n), `세르 n=${n}`);
   assert.equal(NEED_MESO.arc[n - 1], f(-5.4 * n ** 3 + 123 * n ** 2 + 300 * n), `아르 n=${n}`);
   assert.equal(NEED_MESO.odi[n - 1], f(-5.4 * n ** 3 + 139.2 * n ** 2 + 336 * n), `오디 n=${n}`);
+  assert.equal(NEED_MESO.dow[n - 1], f(-5.4 * n ** 3 + 155.4 * n ** 2 + 372 * n), `도원경 n=${n}`);
+  assert.equal(NEED_MESO.art[n - 1], f(-5.4 * n ** 3 + 171.6 * n ** 2 + 408 * n), `아르테리아 n=${n}`);
+  assert.equal(NEED_MESO.car[n - 1], f(-5.4 * n ** 3 + 187.8 * n ** 2 + 444 * n), `카르시온 n=${n}`);
+  assert.equal(NEED_MESO.tal[n - 1], f(-5.4 * n ** 3 + 346.2 * n ** 2 + 796 * n), `탈라하트 n=${n}`);
+  assert.equal(NEED_MESO.gea[n - 1], f(-5.4 * n ** 3 + 427.2 * n ** 2 + 976 * n), `기어드락 n=${n}`);
 }
 for (let n = 1; n <= 11; n++) {
   assert.equal(STAT_AT.normal[n - 1], 100 * (2 * n + 3));
@@ -30,6 +35,15 @@ assert.equal(TOTAL_GROWTH, 4565);
 assert.equal(CUM_MESO.cer[10], 3930100000);
 assert.equal(CUM_MESO.arc[10], 4751600000);
 assert.equal(CUM_MESO.odi[10], 5573300000);
+assert.equal(CUM_MESO.dow[10], 6395000000);
+assert.equal(CUM_MESO.art[10], 7216900000);
+assert.equal(CUM_MESO.car[10], 8038600000);
+assert.equal(CUM_MESO.dow[4], 784000000);
+assert.equal(CUM_MESO.car[6], 2403100000);
+assert.equal(CUM_MESO.car[7], 3448900000);
+assert.equal(CUM_MESO.tal[10], 16072800000);
+assert.equal(CUM_MESO.gea[10], 20181300000);
+assert.equal(CUM_MESO.gea[4], 2203400000);
 
 // 3) 시뮬레이션: 매일 10, 주간 0 -> 4565 / 10 = 457일째(인덱스 456)
 const start = parseDate("2026-11-24");
