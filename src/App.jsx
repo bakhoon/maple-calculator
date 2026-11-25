@@ -68,7 +68,7 @@ const makeChar = (name = "캐릭터", rates = DEFAULT_RATES) => ({
 
 const defaultState = () => {
   const first = makeChar("캐릭터 1");
-  return { includeToday: true, activeId: first.id, ratesVersion: RATES_VERSION, sharedEvents: [], chars: [first] };
+  return { doneDay: null, activeId: first.id, ratesVersion: RATES_VERSION, sharedEvents: [], chars: [first] };
 };
 
 function loadState() {
@@ -109,9 +109,12 @@ function loadState() {
           }
         }
         if (!parsed.chars.some((c) => c.id === parsed.activeId)) parsed.activeId = parsed.chars[0].id;
-        if (parsed.includeToday === undefined) parsed.includeToday = true;
+        // 예전 "오늘 일일퀘스트 포함" 설정이 꺼져 있었다면 오늘은 이미 한 걸로 옮긴다
+        if (parsed.doneDay === undefined) {
+          parsed.doneDay = parsed.includeToday === false ? toDateStr(todayUTC()) : null;
+        }
         return {
-          includeToday: parsed.includeToday,
+          doneDay: parsed.doneDay,
           activeId: parsed.activeId,
           ratesVersion: RATES_VERSION,
           sharedEvents: Array.isArray(parsed.sharedEvents) ? parsed.sharedEvents : [],
@@ -148,6 +151,10 @@ export default function App() {
   // UTC 날짜가 바뀌면(자정 리셋) dayKey가 바뀌어서 기준일도 함께 갱신된다
   const [dayKey, setDayKey] = useState(() => toDateStr(todayUTC()));
   const startDate = useMemo(() => parseDate(dayKey), [dayKey]);
+  // 오늘 일일퀘스트를 이미 끝냈다고 체크하면 오늘 분은 계산에서 빼고 내일부터 쌓는다.
+  // 체크는 그 날짜에만 유효해서 UTC 날짜가 바뀌면 저절로 풀린다.
+  const doneToday = state.doneDay === dayKey;
+  const includeToday = !doneToday;
 
   const results = useMemo(() => {
     return state.chars.map((c) => {
@@ -167,7 +174,7 @@ export default function App() {
           daily: num(cfg.daily),
           weekly: num(cfg.weekly),
           startDate,
-          includeToday: state.includeToday,
+          includeToday,
           events: normalizeEvents([...state.sharedEvents, ...(c.events || [])], s.key),
           offDays: normalizeOffDays(c.offDays),
         });
@@ -267,11 +274,14 @@ export default function App() {
           <label className="check">
             <input
               type="checkbox"
-              checked={state.includeToday}
-              onChange={(e) => setState((s) => ({ ...s, includeToday: e.target.checked }))}
+              checked={doneToday}
+              onChange={(e) => setState((s) => ({ ...s, doneDay: e.target.checked ? dayKey : null }))}
             />
-            오늘 일일퀘스트도 아직 안 했으면 포함
+            오늘 일일퀘스트 완료
           </label>
+          <span className="muted today-hint">
+            체크하면 오늘 얻은 성장치는 이미 현재 성장치에 들어 있다고 보고 내일(UTC)부터 계산해요. 날짜가 바뀌면 자동으로 풀려요.
+          </span>
         </div>
         <EventEditor
           title="공통 이벤트 (모든 캐릭터에 적용)"
@@ -310,7 +320,7 @@ export default function App() {
           c={activeChar}
           r={results[activeIndex]}
           startDate={startDate}
-          includeToday={state.includeToday}
+          includeToday={includeToday}
           sharedEvents={state.sharedEvents}
           onChange={(patch) => updateChar(activeChar.id, patch)}
           onSymbol={(key, patch) => updateSymbol(activeChar.id, key, patch)}
