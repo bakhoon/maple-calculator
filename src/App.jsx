@@ -404,6 +404,8 @@ export default function App() {
         />
       </section>
 
+      <FinishOrder chars={state.chars} results={results} startDate={startDate} />
+
       <CompareTable chars={state.chars} results={results} startDate={startDate} extraNow={extraOn(extra, startDate)} />
 
       <div className="actions">
@@ -1159,5 +1161,148 @@ function UtcClock({ dayKey, onNewDay }) {
         <span className="muted">리셋까지</span> {hms(nextReset - now.getTime())}
       </div>
     </div>
+  );
+}
+
+/** 같은 값이면 같은 순위를 주는 순위 매기기 (1, 1, 3 ...) */
+function withRank(list, keyOf) {
+  let rank = 0;
+  return list.map((item, i) => {
+    if (i === 0 || keyOf(item) !== keyOf(list[i - 1])) rank = i + 1;
+    return { ...item, rank };
+  });
+}
+
+/**
+ * 누가 먼저 끝나는지 보여주는 기록.
+ * 1) 캐릭터별 전부 MAX 순위
+ * 2) 모든 심볼의 완료 순서 (날짜순)
+ */
+function FinishOrder({ chars, results, startDate }) {
+  const daysFrom = (date) => Math.round((date - startDate) / 86400000);
+
+  // 1) 캐릭터 순위
+  const charRows = chars
+    .map((c, i) => ({ c, r: results[i] }))
+    .filter(({ r }) => r.anyOn);
+  const doneChars = charRows.filter(({ r }) => r.allMax);
+  const datedChars = charRows
+    .filter(({ r }) => !r.allMax && !r.impossible && r.latest)
+    .sort((a, b) => a.r.latest - b.r.latest);
+  const stuckChars = charRows.filter(({ r }) => !r.allMax && (r.impossible || !r.latest));
+  const rankedChars = withRank(datedChars, ({ r }) => r.latest.getTime());
+  const firstDate = datedChars.length ? datedChars[0].r.latest : null;
+
+  // 2) 심볼 완료 순서
+  const entries = [];
+  chars.forEach((c, i) => {
+    SYMBOLS.forEach((sym) => {
+      if (!c.symbols[sym.key].on) return;
+      entries.push({ c, sym, sim: results[i].perSymbol[sym.key] });
+    });
+  });
+  const doneEntries = entries.filter((e) => e.sim.isMax);
+  const datedEntries = entries
+    .filter((e) => !e.sim.isMax && e.sim.maxDate)
+    .sort((a, b) => a.sim.maxDate - b.sim.maxDate);
+  const stuckEntries = entries.filter((e) => !e.sim.isMax && !e.sim.maxDate);
+  const rankedEntries = withRank(datedEntries, (e) => e.sim.maxDate.getTime());
+
+  if (charRows.length === 0) return null;
+
+  return (
+    <section className="card">
+      <h2>완료 순서</h2>
+
+      <h3 className="sub-title">캐릭터별로 누가 먼저 전부 MAX가 될까요</h3>
+      <ol className="order-list">
+        {doneChars.map(({ c }) => (
+          <li key={c.id}>
+            <span className="rank done">완료</span>
+            <b>{c.name || "(이름 없음)"}</b>
+            <span className="muted">이미 켜 둔 심볼이 모두 MAX예요</span>
+          </li>
+        ))}
+        {rankedChars.map(({ c, r, rank }) => (
+          <li key={c.id}>
+            <span className={`rank ${rank === 1 ? "first" : ""}`}>{rank}위</span>
+            <b>{c.name || "(이름 없음)"}</b>
+            <span>{formatDate(r.latest)}</span>
+            <span className="muted">
+              D+{daysFrom(r.latest)}
+              {rank > 1 && firstDate && ` · 1위보다 ${daysFrom(r.latest) - daysFrom(firstDate)}일 늦음`}
+            </span>
+          </li>
+        ))}
+        {stuckChars.map(({ c }) => (
+          <li key={c.id}>
+            <span className="rank">-</span>
+            <b>{c.name || "(이름 없음)"}</b>
+            <span className="muted">획득량을 넣어야 계산할 수 있어요</span>
+          </li>
+        ))}
+      </ol>
+
+      <h3 className="sub-title">심볼 완료 순서 (날짜순)</h3>
+      <div className="scroll">
+        <table className="order-table">
+          <thead>
+            <tr>
+              <th>순서</th>
+              <th>날짜</th>
+              <th>D+</th>
+              <th>캐릭터</th>
+              <th>심볼</th>
+            </tr>
+          </thead>
+          <tbody>
+            {doneEntries.map((e) => (
+              <tr key={`d-${e.c.id}-${e.sym.key}`}>
+                <td>
+                  <span className="rank done">완료</span>
+                </td>
+                <td className="muted">-</td>
+                <td className="muted">-</td>
+                <td>{e.c.name || "(이름 없음)"}</td>
+                <td>
+                  <span className="dot" style={{ background: e.sym.color }} />
+                  {e.sym.name}
+                </td>
+              </tr>
+            ))}
+            {rankedEntries.map((e) => (
+              <tr key={`t-${e.c.id}-${e.sym.key}`} className={e.rank === 1 ? "first-row" : ""}>
+                <td>
+                  <span className={`rank ${e.rank === 1 ? "first" : ""}`}>{e.rank}</span>
+                </td>
+                <td>{formatDate(e.sim.maxDate)}</td>
+                <td>D+{daysFrom(e.sim.maxDate)}</td>
+                <td>{e.c.name || "(이름 없음)"}</td>
+                <td>
+                  <span className="dot" style={{ background: e.sym.color }} />
+                  {e.sym.name}
+                </td>
+              </tr>
+            ))}
+            {stuckEntries.map((e) => (
+              <tr key={`s-${e.c.id}-${e.sym.key}`}>
+                <td>
+                  <span className="rank">-</span>
+                </td>
+                <td className="muted" colSpan="2">
+                  계산 불가
+                </td>
+                <td>{e.c.name || "(이름 없음)"}</td>
+                <td>
+                  <span className="dot" style={{ background: e.sym.color }} />
+                  {e.sym.name}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="hint">같은 날짜에 끝나는 항목은 같은 순위로 표시돼요.</p>
+    </section>
   );
 }

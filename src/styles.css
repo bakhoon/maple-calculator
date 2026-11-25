@@ -718,3 +718,49 @@ th {
 .chart-grid {
   grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
 }
+
+.order-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.order-list li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+  background: #11131a;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+.rank {
+  display: inline-block;
+  min-width: 34px;
+  text-align: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #262b3a;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.rank.first {
+  background: #ffcf4a;
+  color: #2b2100;
+}
+
+.rank.done {
+  background: #1f3d2c;
+  color: #6fe3a0;
+}
+
+.order-table .first-row td {
+  background: #1d2433;
+}
