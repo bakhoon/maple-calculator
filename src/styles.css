@@ -525,3 +525,22 @@ th {
   font-size: 13px;
   line-height: 1.6;
 }
+
+.compare th,
+.compare td {
+  text-align: center;
+}
+
+.compare .row-label {
+  text-align: left;
+  color: var(--muted);
+  position: sticky;
+  left: 0;
+  background: var(--card);
+}
+
+.compare td.best {
+  background: #1b3326;
+  color: #7fe6a8;
+  font-weight: 700;
+}

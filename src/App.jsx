@@ -343,6 +343,8 @@ export default function App() {
         />
       </section>
 
+      <CompareTable chars={state.chars} results={results} startDate={startDate} />
+
       <div className="actions">
         <button onClick={() => setShowTable((v) => !v)}>
           {showTable ? "기준 테이블 닫기" : "기준 테이블 보기"}
@@ -770,5 +772,172 @@ function EventEditor({ events, onChange }) {
         </ul>
       )}
     </div>
+  );
+}
+
+/**
+ * 캐릭터끼리 비교하는 표. 캐릭터가 열, 항목이 행이다.
+ * 각 행에서 가장 좋은 값(better: "low" 또는 "high")은 초록색으로 표시한다.
+ */
+function CompareTable({ chars, results, startDate }) {
+  if (chars.length < 2) {
+    return (
+      <section className="card">
+        <h2>캐릭터 비교</h2>
+        <p className="hint">캐릭터를 2개 이상 추가하면 서로 비교하는 표가 여기에 나와요.</p>
+      </section>
+    );
+  }
+
+  const clsName = (c) => CLASS_TYPES.find((t) => t.key === c.cls)?.name || "";
+  const daysTo = (r) =>
+    r.allMax ? 0 : r.impossible || !r.latest ? Infinity : Math.round((r.latest - startDate) / 86400000);
+  const sum = (r, c, f) =>
+    SYMBOLS.reduce((a, sym) => (c.symbols[sym.key].on ? a + f(c.symbols[sym.key], r.perSymbol[sym.key]) : a), 0);
+
+  // 행: { label, cells: [{ text, score }], better }
+  const rows = [];
+  const add = (label, cells, better = null) => rows.push({ label, cells, better });
+
+  add("직업", chars.map((c) => ({ text: clsName(c) })));
+  add(
+    "진행 중인 심볼",
+    chars.map((c) => {
+      const n = SYMBOLS.filter((x) => c.symbols[x.key].on).length;
+      return { text: `${n}개`, score: n };
+    }),
+    "high"
+  );
+  add(
+    "현재 AUT",
+    chars.map((_, i) => ({ text: String(results[i].aut), score: results[i].aut })),
+    "high"
+  );
+  add(
+    "현재 스탯 증가량",
+    chars.map((c, i) => {
+      const label = CLASS_TYPES.find((t) => t.key === c.cls)?.statLabel || "";
+      return { text: `${label} +${results[i].stat.toLocaleString()}`, score: results[i].stat };
+    })
+  );
+
+  for (const sym of SYMBOLS) {
+    if (!chars.some((c) => c.symbols[sym.key].on)) continue;
+    add(
+      `${sym.name} 레벨`,
+      chars.map((c) => {
+        const cfg = c.symbols[sym.key];
+        if (!cfg.on) return { text: "-" };
+        return { text: cfg.level >= MAX_LEVEL ? "MAX" : `Lv.${cfg.level}`, score: cfg.level };
+      }),
+      "high"
+    );
+    add(
+      `${sym.name} MAX 날짜`,
+      chars.map((c, i) => {
+        const cfg = c.symbols[sym.key];
+        const sim = results[i].perSymbol[sym.key];
+        if (!cfg.on) return { text: "-" };
+        if (sim.isMax) return { text: "완료", score: -1 };
+        if (sim.days === Infinity) return { text: "계산 불가" };
+        return { text: formatDate(sim.maxDate), score: sim.maxDate.getTime() };
+      }),
+      "low"
+    );
+  }
+
+  add(
+    "전부 MAX 날짜",
+    chars.map((_, i) => {
+      const r = results[i];
+      if (!r.anyOn) return { text: "-" };
+      if (r.allMax) return { text: "완료", score: -1 };
+      if (r.impossible || !r.latest) return { text: "계산 불가" };
+      return { text: formatDate(r.latest), score: r.latest.getTime() };
+    }),
+    "low"
+  );
+  add(
+    "오늘부터 걸리는 기간",
+    chars.map((_, i) => {
+      const d = daysTo(results[i]);
+      if (!results[i].anyOn || d === Infinity) return { text: "-" };
+      return { text: d === 0 ? "완료" : `${d.toLocaleString()}일`, score: d };
+    }),
+    "low"
+  );
+  add(
+    "남은 성장치",
+    chars.map((c, i) => {
+      if (!results[i].anyOn) return { text: "-" };
+      const v = sum(results[i], c, (_cfg, sim) => sim.remainingGrowth);
+      return { text: v.toLocaleString(), score: v };
+    }),
+    "low"
+  );
+  add(
+    "남은 메소",
+    chars.map((_, i) => {
+      if (!results[i].anyOn) return { text: "-" };
+      return { text: formatMeso(results[i].totalMeso), score: results[i].totalMeso };
+    }),
+    "low"
+  );
+  add(
+    "하루 획득량 (합계)",
+    chars.map((c, i) => {
+      if (!results[i].anyOn) return { text: "-" };
+      const v = sum(results[i], c, (cfg, sim) => (sim.isMax ? 0 : num(cfg.daily)));
+      return { text: v.toLocaleString(), score: v };
+    }),
+    "high"
+  );
+  add(
+    "등록한 이벤트",
+    chars.map((c) => ({ text: `${(c.events || []).length}개` }))
+  );
+
+  // 같은 행에서 가장 좋은 값 찾기 (모두 같으면 표시하지 않는다)
+  const bestOf = (row) => {
+    if (!row.better) return null;
+    const scored = row.cells.map((x) => x.score).filter((v) => typeof v === "number");
+    if (scored.length < 2) return null;
+    const best = row.better === "low" ? Math.min(...scored) : Math.max(...scored);
+    if (scored.every((v) => v === best)) return null;
+    return best;
+  };
+
+  return (
+    <section className="card">
+      <h2>캐릭터 비교</h2>
+      <div className="scroll">
+        <table className="compare">
+          <thead>
+            <tr>
+              <th>항목</th>
+              {chars.map((c) => (
+                <th key={c.id}>{c.name || "(이름 없음)"}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => {
+              const best = bestOf(row);
+              return (
+                <tr key={row.label}>
+                  <th className="row-label">{row.label}</th>
+                  {row.cells.map((cell, i) => (
+                    <td key={chars[i].id} className={best !== null && cell.score === best ? "best" : ""}>
+                      {cell.text}
+                    </td>
+                  ))}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className="hint">초록색은 그 항목에서 가장 좋은 값이에요. 날짜, 기간, 남은 양은 낮을수록, 레벨과 AUT, 하루 획득량은 높을수록 좋은 걸로 봤어요.</p>
+    </section>
   );
 }
