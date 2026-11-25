@@ -42,29 +42,34 @@ export function toDateStr(date) {
  *  levelUps: 레벨업이 가능해지는 날짜 목록 [{ level, date, mesoCost }]
  */
 /**
- * 이벤트: { name, start: "YYYY-MM-DD", end: "YYYY-MM-DD", amounts: { 심볼key: 하루 추가 수량 } }
- * 해당 심볼에 적용되는 유효한 이벤트만 날짜로 변환해 돌려준다.
+ * 추가 수량: 시작일부터 매일 얻는 추가량. 모든 심볼, 모든 캐릭터에 똑같이 적용된다.
+ * 목록: [{ start: "YYYY-MM-DD", amount }]
+ * 더 늦은 시작일의 항목이 시작되는 날부터는 앞 항목에 더해지지 않고, 그 값으로 바뀐다.
+ * (같은 시작일이 여러 개면 목록에서 아래에 있는 항목이 적용된다)
  */
-export function normalizeEvents(events, symbolKey) {
+export function normalizeExtraSteps(steps) {
   const out = [];
-  for (const e of events || []) {
-    if (!e.start || !e.end) continue;
-    const amount = Number(e.amounts && e.amounts[symbolKey]);
-    if (!Number.isFinite(amount) || amount <= 0) continue;
-    const start = parseDate(e.start);
-    const end = parseDate(e.end);
-    if (end < start) continue;
-    out.push({ start, end, amount });
+  for (const e of steps || []) {
+    if (!e.start) continue;
+    const amount = Number(e.amount);
+    if (!Number.isFinite(amount) || amount < 0) continue;
+    out.push({ start: parseDate(e.start), amount });
   }
-  return out;
+  // 시작일 순으로 정렬 (같은 날짜는 입력한 순서를 유지)
+  return out
+    .map((x, i) => ({ x, i }))
+    .sort((p, q) => p.x.start - q.x.start || p.i - q.i)
+    .map(({ x }) => x);
 }
 
-export function eventBonusOn(events, date) {
-  let total = 0;
-  for (const e of events) {
-    if (date >= e.start && date <= e.end) total += e.amount;
+/** 그 날짜에 적용되는 하루 추가량 (시작일 전이면 0) */
+export function extraOn(extra, date) {
+  let amount = 0;
+  for (const e of extra) {
+    if (e.start <= date) amount = e.amount;
+    else break;
   }
-  return total;
+  return amount;
 }
 
 /**
@@ -95,29 +100,6 @@ export function countOffDays(offDays) {
   return seen.size;
 }
 
-/**
- * 날짜가 겹치고 같은 심볼에 둘 다 수량이 들어가는 이벤트 쌍을 찾는다.
- * 반환: [{ a, b, from: Date, to: Date, symbols: [심볼key] }]
- */
-export function findEventOverlaps(events) {
-  const valid = (events || []).filter((e) => e.start && e.end && parseDate(e.end) >= parseDate(e.start));
-  const has = (e, k) => Number(e.amounts && e.amounts[k]) > 0;
-  const out = [];
-  for (let i = 0; i < valid.length; i++) {
-    for (let j = i + 1; j < valid.length; j++) {
-      const a = valid[i];
-      const b = valid[j];
-      const keys = Object.keys({ ...(a.amounts || {}), ...(b.amounts || {}) });
-      const symbols = keys.filter((k) => has(a, k) && has(b, k));
-      if (symbols.length === 0) continue;
-      const from = new Date(Math.max(parseDate(a.start).getTime(), parseDate(b.start).getTime()));
-      const to = new Date(Math.min(parseDate(a.end).getTime(), parseDate(b.end).getTime()));
-      if (from <= to) out.push({ a, b, from, to, symbols });
-    }
-  }
-  return out;
-}
-
 /** 못하는 날짜끼리 날짜가 겹치는 쌍 */
 export function findOffDayOverlaps(offDays) {
   const valid = (offDays || []).filter((o) => o.start && (!o.end || parseDate(o.end) >= parseDate(o.start)));
@@ -144,7 +126,7 @@ export function simulateSymbol({
   weekly,
   startDate,
   includeToday,
-  events = [],
+  extra = [],
   offDays = [],
 }) {
   const lvl = Math.min(Math.max(level, 1), MAX_LEVEL);
@@ -171,7 +153,7 @@ export function simulateSymbol({
   let maxDate = null;
   let days = 0;
 
-  if (daily <= 0 && weekly <= 0 && events.length === 0) {
+  if (daily <= 0 && weekly <= 0 && !extra.some((e) => e.amount > 0)) {
     return {
       isMax: false,
       days: Infinity,
@@ -185,7 +167,7 @@ export function simulateSymbol({
   for (let i = 0; i < MAX_DAYS; i++) {
     const date = addDays(startDate, i);
     if (i === 0 && !includeToday) continue;
-    if (!isOffDay(offDays, date)) total += daily + eventBonusOn(events, date);
+    if (!isOffDay(offDays, date)) total += daily + extraOn(extra, date);
     if (date.getUTCDay() === WEEKLY_RESET_DAY) total += weekly;
 
     while (nextLevel <= MAX_LEVEL && total >= CUM_GROWTH[nextLevel - 1]) {
@@ -242,7 +224,7 @@ export function requiredDaily({
   startDate,
   includeToday,
   targetDate,
-  events = [],
+  extra = [],
   offDays = [],
 }) {
   const lvl = Math.min(Math.max(level, 1), MAX_LEVEL);
@@ -253,15 +235,15 @@ export function requiredDaily({
 
   let dayCount = 0;
   let thursdays = 0;
-  let eventTotal = 0;
+  let extraTotal = 0;
   for (let d = new Date(startDate), i = 0; d <= targetDate; i++, d = addDays(startDate, i)) {
     if (i === 0 && !includeToday) continue;
     if (!isOffDay(offDays, d)) {
       dayCount++;
-      eventTotal += eventBonusOn(events, d);
+      extraTotal += extraOn(extra, d);
     }
     if (d.getUTCDay() === WEEKLY_RESET_DAY) thursdays++;
   }
   if (dayCount <= 0) return Infinity;
-  return Math.max(0, Math.ceil((remaining - thursdays * weekly - eventTotal) / dayCount));
+  return Math.max(0, Math.ceil((remaining - thursdays * weekly - extraTotal) / dayCount));
 }

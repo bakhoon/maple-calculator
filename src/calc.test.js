@@ -116,10 +116,10 @@ console.log("모든 테스트 통과");
 // 4) 목표일까지 필요한 일일 성장치: 레벨 10, 성장치 1000 -> 남은 100, 10일(11/24~12/03) 이면 10
 import {
   requiredDaily,
-  normalizeEvents,
+  normalizeExtraSteps,
+  extraOn,
   normalizeOffDays,
   countOffDays,
-  findEventOverlaps,
   findOffDayOverlaps,
 } from "./calc.js";
 assert.equal(
@@ -137,56 +137,65 @@ assert.equal(
 );
 console.log("목표일 테스트 통과");
 
-// 5) 이벤트: 심볼마다 다른 수량
-const ev1 = { start: "2026-11-24", end: "2026-11-28", amounts: { cer: 20, arc: 5 } };
-const evCer = normalizeEvents([ev1], "cer");
-const evArc = normalizeEvents([ev1], "arc");
-assert.equal(evCer[0].amount, 20);
-assert.equal(evArc[0].amount, 5);
-assert.equal(normalizeEvents([ev1], "odi").length, 0); // 수량이 없는 심볼은 적용 안 됨
+// 5) 추가 수량: 시작일부터 매일, 더 늦은 시작일이 오면 더해지지 않고 값이 바뀐다
+const steps = normalizeExtraSteps([
+  { start: "2026-12-01", amount: 9 },
+  { start: "2026-11-25", amount: 8 }, // 입력 순서가 뒤바뀌어도 시작일 순으로 정렬
+]);
+assert.equal(extraOn(steps, parseDate("2026-11-24")), 0); // 시작 전
+assert.equal(extraOn(steps, parseDate("2026-11-25")), 8);
+assert.equal(extraOn(steps, parseDate("2026-11-30")), 8);
+assert.equal(extraOn(steps, parseDate("2026-12-01")), 9); // 8+9가 아니라 9
+assert.equal(extraOn(steps, parseDate("2027-01-31")), 9);
+// 추가량 0으로 끝낼 수 있다
+const stopSteps = normalizeExtraSteps([{ start: "2026-11-25", amount: 8 }, { start: "2026-11-27", amount: 0 }]);
+assert.equal(extraOn(stopSteps, parseDate("2026-11-26")), 8);
+assert.equal(extraOn(stopSteps, parseDate("2026-11-27")), 0);
+// 같은 시작일이면 아래에 입력한 항목이 적용
+const dup = normalizeExtraSteps([{ start: "2026-11-25", amount: 3 }, { start: "2026-11-25", amount: 7 }]);
+assert.equal(extraOn(dup, parseDate("2026-11-25")), 7);
+// 잘못된 항목은 무시
+assert.equal(normalizeExtraSteps([{ start: "", amount: 5 }, { start: "2026-11-25", amount: -1 }, { start: "2026-11-25", amount: "x" }]).length, 0);
 
-// 레벨 10, 성장치 1000 -> 남은 100. 일일 0, 세르니움 +20/일 (11/24~11/28) -> 5일째(11/28)에 MAX
-const re = simulateSymbol({
-  symbolKey: "cer", level: 10, progress: 1000, daily: 0, weekly: 0,
-  startDate: start, includeToday: true, events: evCer,
+// 시뮬레이션: 레벨 10, 성장치 1000 -> 남은 100. 일일 10, 11/25부터 +8, 12/01부터 +9
+// 11/24: 10, 11/25부터 하루 18 -> 11/24(10) + 11/25~11/29(18*5=90) = 100 -> 11/29
+const ex1 = simulateSymbol({
+  symbolKey: "cer", level: 10, progress: 1000, daily: 10, weekly: 0,
+  startDate: start, includeToday: true, extra: steps,
 });
-assert.equal(toDateStr(re.maxDate), "2026-11-28");
-// 같은 이벤트라도 아르크스는 +5/일이라 5일간 25만 모이고 끝나서 MAX 불가
-const ra = simulateSymbol({
-  symbolKey: "arc", level: 10, progress: 1000, daily: 0, weekly: 0,
-  startDate: start, includeToday: true, events: evArc,
-});
-assert.equal(ra.maxDate, null); // 이벤트가 5일뿐이라 25만 모이고 끝 -> 이벤트 종료 후 수급 0이라 MAX 불가
-assert.equal(ra.days, Infinity);
-
-// 일일 10 + 세르니움 이벤트 +10 -> 남은 100이 5일 (11/28)
-const re2 = simulateSymbol({
+assert.equal(toDateStr(ex1.maxDate), "2026-11-29");
+// 추가량이 없으면 10일째(12/03)
+const ex0 = simulateSymbol({
   symbolKey: "cer", level: 10, progress: 1000, daily: 10, weekly: 0,
   startDate: start, includeToday: true,
-  events: normalizeEvents([{ start: "2026-11-24", end: "2026-12-31", amounts: { cer: 10 } }], "cer"),
 });
-assert.equal(toDateStr(re2.maxDate), "2026-11-28");
+assert.equal(toDateStr(ex0.maxDate), "2026-12-03");
+// 교체 확인: 일일 0, 11/24부터 +10, 11/26부터 +50 -> 11/24:10, 11/25:10, 11/26:50 (합 70), 11/27:50 (합 120) -> 11/27
+const ex2 = simulateSymbol({
+  symbolKey: "cer", level: 10, progress: 1000, daily: 0, weekly: 0,
+  startDate: start, includeToday: true,
+  extra: normalizeExtraSteps([{ start: "2026-11-24", amount: 10 }, { start: "2026-11-26", amount: 50 }]),
+});
+assert.equal(toDateStr(ex2.maxDate), "2026-11-27");
+assert.notEqual(ex2.days, Infinity); // 일일 0이어도 추가량만으로 계산 가능
 
-// 목표일 필요량에 이벤트 반영: 10일 동안 이벤트 총 100 -> 필요 0
+// 목표일 필요량에 추가량 반영: 11/24~12/03 10일, 추가 +10/일 -> 총 100이라 필요 0
 assert.equal(
   requiredDaily({ level: 10, progress: 1000, weekly: 0, startDate: start, includeToday: true,
     targetDate: parseDate("2026-12-03"),
-    events: normalizeEvents([{ start: "2026-11-24", end: "2026-12-03", amounts: { cer: 10 } }], "cer") }),
+    extra: normalizeExtraSteps([{ start: "2026-11-24", amount: 10 }]) }),
   0
 );
 
-// 6) 이벤트 겹침: 날짜가 겹쳐도 같은 심볼에 둘 다 수량이 없으면 경고 안 함
-const ov = findEventOverlaps([
-  { name: "1", start: "2026-11-24", end: "2026-11-30", amounts: { cer: 5, arc: 5 } },
-  { name: "2", start: "2026-11-28", end: "2026-12-05", amounts: { cer: 5 } },
-  { name: "3", start: "2026-12-01", end: "2026-12-10", amounts: { arc: 5 } },
-  { name: "4", start: "2026-11-25", end: "2026-11-26", amounts: { odi: 5 } },
-]);
-// 1-2: 날짜 11/28~11/30, 공통 심볼 cer -> 경고 / 1-3 날짜 안 겹침 / 2-3: 12/01~12/05 날짜는 겹치나 심볼이 달라 제외 / 1-4 심볼 다름
-assert.equal(ov.length, 1);
-assert.equal(toDateStr(ov[0].from), "2026-11-28");
-assert.equal(toDateStr(ov[0].to), "2026-11-30");
-assert.deepEqual(ov[0].symbols, ["cer"]);
+// 6) 못하는 날에는 추가량도 안 들어온다
+const off6 = normalizeOffDays([{ start: "2026-11-25", end: "2026-11-27" }]);
+const ex3 = simulateSymbol({
+  symbolKey: "cer", level: 10, progress: 1000, daily: 0, weekly: 0,
+  startDate: start, includeToday: true, offDays: off6,
+  extra: normalizeExtraSteps([{ start: "2026-11-24", amount: 20 }]),
+});
+// 11/24(20), 11/25~27 쉼, 11/28(40) 11/29(60) 11/30(80) 12/01(100)
+assert.equal(toDateStr(ex3.maxDate), "2026-12-01");
 
 // 7) 못하는 날짜
 // 레벨 10, 성장치 1000 -> 남은 100, 일일 10. 11/25~11/27 못하면 5일치가 아니라 10일에서 3일 밀림
@@ -200,12 +209,6 @@ assert.equal(toDateStr(ro.maxDate), "2026-12-06");
 // 끝일이 비어 있으면 하루짜리
 assert.equal(countOffDays([{ start: "2026-11-25" }]), 1);
 assert.equal(countOffDays([{ start: "2026-11-25", end: "2026-11-27" }, { start: "2026-11-27", end: "2026-11-28" }]), 4);
-// 못하는 날에는 이벤트 수량도 안 들어옴: 이벤트 +20(11/24~11/28), 11/25~11/27 못함 -> 11/24, 11/28 두 번뿐
-const roe = simulateSymbol({
-  symbolKey: "cer", level: 10, progress: 1000, daily: 0, weekly: 0,
-  startDate: start, includeToday: true, offDays: off, events: evCer,
-});
-assert.equal(roe.maxDate, null);
 // 목표일 필요량: 10일 중 3일 못하면 7일로 나눈다. 남은 100 -> ceil(100/7)=15
 assert.equal(
   requiredDaily({ level: 10, progress: 1000, weekly: 0, startDate: start, includeToday: true,

@@ -16,10 +16,10 @@ import { LevelChart, CompareChart } from "./Charts.jsx";
 import {
   simulateSymbol,
   requiredDaily,
-  normalizeEvents,
+  normalizeExtraSteps,
+  extraOn,
   normalizeOffDays,
   countOffDays,
-  findEventOverlaps,
   findOffDayOverlaps,
   formatDate,
   formatMeso,
@@ -52,7 +52,6 @@ const makeChar = (name = "캐릭터", rates = DEFAULT_RATES) => ({
   name,
   cls: "normal",
   target: "",
-  events: [],
   offDays: [],
   symbols: {
     cer: { on: true, level: 1, progress: 0, ...rates.cer },
@@ -68,7 +67,7 @@ const makeChar = (name = "캐릭터", rates = DEFAULT_RATES) => ({
 
 const defaultState = () => {
   const first = makeChar("캐릭터 1");
-  return { doneDay: null, activeId: first.id, ratesVersion: RATES_VERSION, sharedEvents: [], chars: [first] };
+  return { doneDay: null, activeId: first.id, ratesVersion: RATES_VERSION, extraSteps: [], chars: [first] };
 };
 
 function loadState() {
@@ -87,17 +86,8 @@ function loadState() {
           }
         }
         for (const c of parsed.chars) {
-          if (!Array.isArray(c.events)) c.events = [];
+          delete c.events; // 캐릭터별 이벤트는 없어지고 공통 추가 수량 하나로 바뀌었다
           if (!Array.isArray(c.offDays)) c.offDays = [];
-          // 이전 형식(이벤트 하나에 심볼 하나, 수량 하나)을 심볼별 수량으로 바꾼다
-          c.events = c.events.map((e) => {
-            if (e.amounts) return e;
-            const amounts = {};
-            const targets = e.symbol === "all" || !e.symbol ? SYMBOLS.map((x) => x.key) : [e.symbol];
-            for (const k of targets) amounts[k] = e.amount;
-            const { symbol: _s, amount: _a, ...rest } = e;
-            return { ...rest, amounts };
-          });
         }
         // 예전 기본값(하루 10)을 그대로 두고 있던 값은 새 기본값으로 한 번만 바꿔준다
         if ((parsed.ratesVersion || 1) < RATES_VERSION) {
@@ -117,7 +107,8 @@ function loadState() {
           doneDay: parsed.doneDay,
           activeId: parsed.activeId,
           ratesVersion: RATES_VERSION,
-          sharedEvents: Array.isArray(parsed.sharedEvents) ? parsed.sharedEvents : [],
+          // 예전 이벤트(기간, 심볼별 수량)는 새 "추가 수량" 방식과 달라서 옮기지 않는다
+          extraSteps: Array.isArray(parsed.extraSteps) ? parsed.extraSteps : [],
           chars: parsed.chars,
         };
       }
@@ -156,6 +147,8 @@ export default function App() {
   const doneToday = state.doneDay === dayKey;
   const includeToday = !doneToday;
 
+  const extra = useMemo(() => normalizeExtraSteps(state.extraSteps), [state.extraSteps]);
+
   const results = useMemo(() => {
     return state.chars.map((c) => {
       const perSymbol = {};
@@ -175,7 +168,7 @@ export default function App() {
           weekly: num(cfg.weekly),
           startDate,
           includeToday,
-          events: normalizeEvents([...state.sharedEvents, ...(c.events || [])], s.key),
+          extra,
           offDays: normalizeOffDays(c.offDays),
         });
         perSymbol[s.key] = sim;
@@ -201,7 +194,7 @@ export default function App() {
 
       return { perSymbol, latest, impossible, totalMeso, allMax: anyOn && allMax, anyOn, aut, stat };
     });
-  }, [state, startDate]);
+  }, [state, startDate, extra, includeToday]);
 
   const updateChar = (id, patch) =>
     setState((s) => ({
@@ -283,13 +276,10 @@ export default function App() {
             체크하면 오늘 얻은 성장치는 이미 현재 성장치에 들어 있다고 보고 내일(UTC)부터 계산해요. 날짜가 바뀌면 자동으로 풀려요.
           </span>
         </div>
-        <EventEditor
-          title="공통 이벤트 (모든 캐릭터에 적용)"
-          emptyHint="모든 캐릭터에 똑같이 적용되는 이벤트를 여기에 한 번만 입력하세요. 캐릭터마다 따로 있는 이벤트는 각 캐릭터 탭에서 추가해요. 기간 동안 심볼별로 하루에 더 얻는 추가 수량이 모든 캐릭터의 일일퀘스트 획득량에 더해져요."
-          events={state.sharedEvents}
-          symbols={SYMBOLS}
-          enabled={SYMBOLS.map((x) => x.key)}
-          onChange={(sharedEvents) => setState((s) => ({ ...s, sharedEvents }))}
+        <ExtraEditor
+          steps={state.extraSteps}
+          today={startDate}
+          onChange={(extraSteps) => setState((s) => ({ ...s, extraSteps }))}
         />
         <p className="hint">
           캐릭터 탭마다 심볼별로 일일퀘스트 하루 획득량, 현재 레벨, 현재 보유 성장치를 입력하세요. 입력한 내용은 이
@@ -321,7 +311,7 @@ export default function App() {
           r={results[activeIndex]}
           startDate={startDate}
           includeToday={includeToday}
-          sharedEvents={state.sharedEvents}
+          extra={extra}
           onChange={(patch) => updateChar(activeChar.id, patch)}
           onSymbol={(key, patch) => updateSymbol(activeChar.id, key, patch)}
           onCopy={() => copyChar(activeChar.id)}
@@ -401,7 +391,7 @@ export default function App() {
         />
       </section>
 
-      <CompareTable chars={state.chars} results={results} startDate={startDate} sharedCount={state.sharedEvents.length} />
+      <CompareTable chars={state.chars} results={results} startDate={startDate} />
 
       <div className="actions">
         <button onClick={() => setShowTable((v) => !v)}>
@@ -417,7 +407,7 @@ export default function App() {
   );
 }
 
-function CharCard({ c, r, startDate, includeToday, sharedEvents, onChange, onSymbol, onCopy, onRemove, canRemove }) {
+function CharCard({ c, r, startDate, includeToday, extra, onChange, onSymbol, onCopy, onRemove, canRemove }) {
   const [open, setOpen] = useState(false);
   const cls = CLASS_TYPES.find((t) => t.key === c.cls);
   const target = c.target ? parseDate(c.target) : null;
@@ -472,20 +462,6 @@ function CharCard({ c, r, startDate, includeToday, sharedEvents, onChange, onSym
             : `전부 MAX ${formatDate(r.latest)} (${dDay(startDate, r.latest)})`}
         </span>
       </div>
-
-      {sharedEvents.length > 0 && (
-        <p className="hint shared-note">
-          공통 이벤트 {sharedEvents.length}개가 이 캐릭터에도 함께 적용되고 있어요. (위쪽 공통 설정에서 수정)
-        </p>
-      )}
-
-      <EventEditor
-        shared={sharedEvents}
-        events={c.events || []}
-        symbols={SYMBOLS}
-        enabled={SYMBOLS.filter((x) => c.symbols[x.key].on).map((x) => x.key)}
-        onChange={(events) => onChange({ events })}
-      />
 
       <OffDayEditor offDays={c.offDays || []} onChange={(offDays) => onChange({ offDays })} />
 
@@ -619,7 +595,7 @@ function CharCard({ c, r, startDate, includeToday, sharedEvents, onChange, onSym
                       startDate,
                       includeToday,
                       targetDate: target,
-                      events: normalizeEvents([...sharedEvents, ...(c.events || [])], s.key),
+                      extra,
                       offDays: normalizeOffDays(c.offDays),
                     });
                     const ok = sim.maxDate && sim.maxDate <= target;
@@ -748,101 +724,89 @@ const fmtShort = (d) => `${d.getUTCMonth() + 1}.${String(d.getUTCDate()).padStar
 const fmtRange = (from, to) =>
   from.getTime() === to.getTime() ? fmtShort(from) : `${fmtShort(from)} ~ ${fmtShort(to)}`;
 
-function EventEditor({
-  events,
-  symbols,
-  enabled,
-  onChange,
-  shared = [],
-  title = "이벤트",
-  emptyHint = "이 캐릭터만의 이벤트가 있으면 추가하세요. 기간 동안 심볼별로 하루에 더 얻는 추가 수량이 일일퀘스트 획득량에 더해져서 계산돼요. 수량이 비어 있거나 0인 심볼은 적용되지 않아요.",
-}) {
-  const add = () =>
-    onChange([
-      ...events,
-      { id: newId(), name: `이벤트 ${events.length + 1}`, start: "", end: "", amounts: {} },
-    ]);
-  const update = (id, patch) => onChange(events.map((e) => (e.id === id ? { ...e, ...patch } : e)));
-  const setAmount = (id, key, value) =>
-    onChange(
-      events.map((e) => (e.id === id ? { ...e, amounts: { ...(e.amounts || {}), [key]: value } } : e))
-    );
-  const remove = (id) => onChange(events.filter((e) => e.id !== id));
+function ExtraEditor({ steps, today, onChange }) {
+  const add = () => {
+    // 새 줄은 마지막 줄보다 하루 뒤 날짜를 비워 두고 시작한다
+    onChange([...steps, { id: newId(), start: "", amount: "" }]);
+  };
+  const update = (id, patch) => onChange(steps.map((e) => (e.id === id ? { ...e, ...patch } : e)));
+  const remove = (id) => onChange(steps.filter((e) => e.id !== id));
 
-  const nameOf = (e) => e.name || "(이름 없음)";
-  const symName = (k) => SYMBOLS.find((x) => x.key === k)?.name || k;
   const warnings = [];
-
-  for (const e of events) {
-    if (!e.start || !e.end) {
-      warnings.push(`"${nameOf(e)}": 시작일과 종료일을 모두 넣어야 계산에 반영돼요.`);
-    } else if (parseDate(e.end) < parseDate(e.start)) {
-      warnings.push(`"${nameOf(e)}": 종료일이 시작일보다 앞서 있어서 계산에 반영되지 않아요.`);
+  steps.forEach((e, i) => {
+    if (!e.start) warnings.push(`${i + 1}번째 줄: 시작일을 넣어야 계산에 반영돼요.`);
+    else if (e.amount === "" || !(Number(e.amount) >= 0)) {
+      warnings.push(`${i + 1}번째 줄: 추가 수량을 0 이상의 숫자로 넣어야 계산에 반영돼요.`);
     }
-    const any = Object.values(e.amounts || {}).some((v) => Number(v) > 0);
-    if (!any) warnings.push(`"${nameOf(e)}": 추가 수량이 하나도 없어서 계산에 반영되지 않아요.`);
+  });
+  const seen = {};
+  steps.forEach((e) => {
+    if (e.start) (seen[e.start] = seen[e.start] || []).push(e);
+  });
+  for (const [date, list] of Object.entries(seen)) {
+    if (list.length > 1) {
+      warnings.push(
+        `${fmtShort(parseDate(date))} 시작일이 ${list.length}번 들어 있어요. 아래에 있는 줄의 수량만 적용돼요.`
+      );
+    }
   }
-  const tagged = [...shared.map((e) => ({ ...e, _shared: true, name: `${e.name || "(이름 없음)"} (공통)` })), ...events];
-  for (const o of findEventOverlaps(tagged)) {
-    if (o.a._shared && o.b._shared) continue; // 공통끼리의 겹침은 공통 설정 쪽에서 알려준다
-    warnings.push(
-      `"${nameOf(o.a)}" 와(과) "${nameOf(o.b)}" 이벤트 날짜가 ${fmtRange(o.from, o.to)}에 겹쳐요. ` +
-        `${o.symbols.map(symName).join(", ")} 심볼은 겹치는 날에 두 수량이 모두 더해져요.`
-    );
-  }
+
+  const normalized = normalizeExtraSteps(steps);
+  const nowExtra = extraOn(normalized, today);
 
   return (
     <div className="events">
       <div className="row-between">
-        <h3 className="sub-title no-top">{title}</h3>
-        <button onClick={add}>+ 이벤트 추가</button>
+        <h3 className="sub-title no-top">
+          추가 수량 <span className="muted">(모든 심볼, 모든 캐릭터에 매일 적용)</span>
+        </h3>
+        <button onClick={add}>+ 추가</button>
       </div>
 
-      {events.length === 0 && <p className="hint">{emptyHint}</p>}
+      <p className="hint">
+        시작일을 넣고 매일 얻는 추가 수량을 적으세요. 아래 줄에 더 늦은 시작일과 다른 수량을 넣으면, 그날부터는 위 수량에
+        더해지지 않고 그 수량으로 바뀌어요. 예: 11.25부터 8 → 12.01부터 9라면 12.01부터는 하루 9개예요. 0을 넣으면 그날부터
+        추가 수량이 없어져요.
+      </p>
 
-      {events.map((e) => (
-        <div className="event-card" key={e.id}>
-          <div className="event-row">
-            <label className="field">
-              <span>이름</span>
-              <input value={e.name} onChange={(ev) => update(e.id, { name: ev.target.value })} />
-            </label>
-            <label className="field">
-              <span>시작일</span>
-              <input type="date" value={e.start} onChange={(ev) => update(e.id, { start: ev.target.value })} />
-            </label>
-            <label className="field">
-              <span>종료일</span>
-              <input type="date" value={e.end} onChange={(ev) => update(e.id, { end: ev.target.value })} />
-            </label>
-            <button className="danger" onClick={() => remove(e.id)}>
-              삭제
-            </button>
-          </div>
-          <div className="amount-title">추가 수량 <span className="muted">(심볼별, 하루 기준)</span></div>
-          <div className="amount-row">
-            {symbols.map((x) => {
-              const on = enabled.includes(x.key);
-              return (
-                <label className={`field amount ${on ? "" : "dim"}`} key={x.key}>
-                  <span>
-                    <i className="dot" style={{ background: x.color }} />
-                    {x.name}
-                    {on ? "" : " (꺼짐)"}
-                  </span>
-                  <input
-                    type="number"
-                    min="0"
-                    placeholder="0"
-                    value={(e.amounts && e.amounts[x.key]) ?? ""}
-                    onChange={(ev) => setAmount(e.id, x.key, ev.target.value)}
-                  />
-                </label>
-              );
-            })}
-          </div>
+      {steps.map((e, i) => (
+        <div className="event-row" key={e.id}>
+          <span className="step-no">{i + 1}</span>
+          <label className="field">
+            <span>시작일</span>
+            <input type="date" value={e.start} onChange={(ev) => update(e.id, { start: ev.target.value })} />
+          </label>
+          <label className="field">
+            <span>매일 추가 수량</span>
+            <input
+              type="number"
+              min="0"
+              placeholder="0"
+              value={e.amount}
+              onChange={(ev) => update(e.id, { amount: ev.target.value })}
+            />
+          </label>
+          <button className="danger" onClick={() => remove(e.id)}>
+            삭제
+          </button>
         </div>
       ))}
+
+      {normalized.length > 0 && (
+        <p className="hint">
+          오늘(UTC) 적용 중인 추가 수량: <b>{nowExtra}</b>
+          {normalized.some((x) => x.start > today) && (
+            <>
+              {" "}
+              · 앞으로 바뀌는 날:{" "}
+              {normalized
+                .filter((x) => x.start > today)
+                .map((x) => `${fmtShort(x.start)}부터 ${x.amount}`)
+                .join(", ")}
+            </>
+          )}
+        </p>
+      )}
 
       {warnings.length > 0 && (
         <ul className="warnings" role="alert">
@@ -926,7 +890,7 @@ function OffDayEditor({ offDays, onChange }) {
  * 캐릭터끼리 비교하는 표. 캐릭터가 열, 항목이 행이다.
  * 각 행에서 가장 좋은 값(better: "low" 또는 "high")은 초록색으로 표시한다.
  */
-function CompareTable({ chars, results, startDate, sharedCount = 0 }) {
+function CompareTable({ chars, results, startDate }) {
   if (chars.length < 2) {
     return (
       <section className="card">
@@ -1038,12 +1002,6 @@ function CompareTable({ chars, results, startDate, sharedCount = 0 }) {
       return { text: v.toLocaleString(), score: v };
     }),
     "high"
-  );
-  add(
-    "등록한 이벤트",
-    chars.map((c) => ({
-      text: `${(c.events || []).length + sharedCount}개${sharedCount ? ` (공통 ${sharedCount} 포함)` : ""}`,
-    }))
   );
   add(
     "못하는 날 (합계)",
