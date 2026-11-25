@@ -145,7 +145,9 @@ export default function App() {
   }, [state]);
 
   // 항상 오늘(UTC 기준)부터 시작한다고 가정한다
-  const startDate = useMemo(() => todayUTC(), []);
+  // UTC 날짜가 바뀌면(자정 리셋) dayKey가 바뀌어서 기준일도 함께 갱신된다
+  const [dayKey, setDayKey] = useState(() => toDateStr(todayUTC()));
+  const startDate = useMemo(() => parseDate(dayKey), [dayKey]);
 
   const results = useMemo(() => {
     return state.chars.map((c) => {
@@ -250,6 +252,7 @@ export default function App() {
   return (
     <div className="app">
       <header className="top">
+        <UtcClock dayKey={dayKey} onNewDay={setDayKey} />
         <h1>어센틱 포스 MAX 계산기</h1>
         <p className="sub">오늘(UTC 기준)부터 매일 꾸준히 하면 각 심볼을 언제 MAX(11레벨)까지 올릴 수 있는지 계산합니다.</p>
       </header>
@@ -1083,5 +1086,40 @@ function CompareTable({ chars, results, startDate, sharedCount = 0 }) {
       </div>
       <p className="hint">초록색은 그 항목에서 가장 좋은 값이에요. 날짜, 기간, 남은 양은 낮을수록, 레벨과 AUT, 하루 획득량은 높을수록 좋은 걸로 봤어요.</p>
     </section>
+  );
+}
+
+const pad2 = (n) => String(n).padStart(2, "0");
+const hms = (ms) => {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  return `${pad2(Math.floor(total / 3600))}:${pad2(Math.floor((total % 3600) / 60))}:${pad2(total % 60)}`;
+};
+
+/** 오른쪽 위에 작게 보이는 UTC 현재 시각과, 다음 UTC 자정(일일 리셋)까지 남은 시간 */
+function UtcClock({ dayKey, onNewDay }) {
+  const [now, setNow] = useState(() => new Date());
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const todayKey = toDateStr(todayUTC());
+  useEffect(() => {
+    if (todayKey !== dayKey) onNewDay(todayKey);
+  }, [todayKey, dayKey, onNewDay]);
+
+  const nextReset = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1);
+  const clock = `${pad2(now.getUTCHours())}:${pad2(now.getUTCMinutes())}:${pad2(now.getUTCSeconds())}`;
+
+  return (
+    <div className="utc-clock" aria-label="UTC 시계">
+      <div>
+        <span className="muted">UTC</span> {clock}
+      </div>
+      <div>
+        <span className="muted">리셋까지</span> {hms(nextReset - now.getTime())}
+      </div>
+    </div>
   );
 }
