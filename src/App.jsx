@@ -406,7 +406,7 @@ export default function App() {
         />
       </section>
 
-      <CompareTable chars={state.chars} results={results} startDate={startDate} />
+      <CompareTable chars={state.chars} results={results} startDate={startDate} extraNow={extraOn(extra, startDate)} />
 
       <div className="actions">
         <button onClick={() => setShowTable((v) => !v)}>
@@ -422,9 +422,27 @@ export default function App() {
   );
 }
 
+/** 오늘(UTC) 적용되는 추가 수량과, 그 값이 바뀌는 다음 날짜/값 */
+function extraToday(extra, startDate) {
+  const now = extraOn(extra, startDate);
+  let next = null;
+  if (extra) {
+    const last = addDays(extra.end, 1);
+    for (let d = addDays(startDate, 1); d <= last; d = addDays(d, 1)) {
+      const v = extraOn(extra, d);
+      if (v !== now) {
+        next = { date: d, amount: v };
+        break;
+      }
+    }
+  }
+  return { now, next };
+}
+
 function CharCard({ c, r, startDate, includeToday, extra, onChange, onSymbol, onCopy, onRemove, canRemove }) {
   const [open, setOpen] = useState(false);
   const cls = CLASS_TYPES.find((t) => t.key === c.cls);
+  const ex = extraToday(extra, startDate);
   const target = c.target ? parseDate(c.target) : null;
   const chartSeries = SYMBOLS.filter((s) => c.symbols[s.key].on).map((s) => ({
     key: s.key,
@@ -579,6 +597,22 @@ function CharCard({ c, r, startDate, includeToday, extra, onChange, onSymbol, on
                   />
                 </label>
               </div>
+
+              {cfg.on && (
+                <div className="final-qty">
+                  <span className="muted">하루 최종 수량 (오늘)</span>
+                  <b>{num(cfg.daily) + ex.now}</b>
+                  <span className="muted">
+                    {" "}
+                    = 기본 {num(cfg.daily)} + 추가 {ex.now}
+                  </span>
+                  {ex.next && (
+                    <div className="muted next-change">
+                      {fmtShort(ex.next.date)}부터 {num(cfg.daily) + ex.next.amount} (추가 {ex.next.amount})
+                    </div>
+                  )}
+                </div>
+              )}
 
               {cfg.on && (
                 <div className="result">
@@ -953,7 +987,7 @@ function OffDayEditor({ offDays, onChange }) {
  * 캐릭터끼리 비교하는 표. 캐릭터가 열, 항목이 행이다.
  * 각 행에서 가장 좋은 값(better: "low" 또는 "high")은 초록색으로 표시한다.
  */
-function CompareTable({ chars, results, startDate }) {
+function CompareTable({ chars, results, startDate, extraNow = 0 }) {
   if (chars.length < 2) {
     return (
       <section className="card">
@@ -1058,10 +1092,10 @@ function CompareTable({ chars, results, startDate }) {
     "low"
   );
   add(
-    "하루 획득량 (합계)",
+    "하루 최종 획득량 (합계, 오늘 기준)",
     chars.map((c, i) => {
       if (!results[i].anyOn) return { text: "-" };
-      const v = sum(results[i], c, (cfg, sim) => (sim.isMax ? 0 : num(cfg.daily)));
+      const v = sum(results[i], c, (cfg, sim) => (sim.isMax ? 0 : num(cfg.daily) + extraNow));
       return { text: v.toLocaleString(), score: v };
     }),
     "high"
