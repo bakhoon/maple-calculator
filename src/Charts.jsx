@@ -14,7 +14,7 @@ const shortYear = (d) => `${String(d.getUTCFullYear()).slice(2)}.${d.getUTCMonth
  * 심볼별 레벨 성장 그래프 (계단식).
  * series: [{ key, name, color, startLevel, levelUps: [{level, date}], isMax }]
  */
-export function LevelChart({ series, startDate }) {
+export function LevelChart({ series, startDate, title, subtitle }) {
   const visible = series.filter((s) => !s.isMax && s.levelUps.length > 0);
   if (visible.length === 0) return null;
 
@@ -32,6 +32,13 @@ export function LevelChart({ series, startDate }) {
 
   return (
     <div className="chart-wrap">
+      {title && (
+        <div className="chart-title">
+          <i style={{ background: visible[0].color }} />
+          <b>{title}</b>
+          {subtitle && <span className="muted">{subtitle}</span>}
+        </div>
+      )}
       <svg viewBox={`0 0 ${W} ${H}`} className="chart" role="img" aria-label="심볼 레벨 성장 그래프">
         {yTicks.map((t) => (
           <g key={t}>
@@ -72,15 +79,16 @@ export function LevelChart({ series, startDate }) {
           );
         })}
       </svg>
-      <div className="legend">
-        {visible.map((s) => (
-          <span key={s.key}>
-            <i style={{ background: s.color }} />
-            {s.name}
-          </span>
-        ))}
-        <span className="muted">세로축: 레벨, 점에 마우스를 올리면 날짜가 보여요</span>
-      </div>
+      {visible.length > 1 && (
+        <div className="legend">
+          {visible.map((s) => (
+            <span key={s.key}>
+              <i style={{ background: s.color }} />
+              {s.name}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

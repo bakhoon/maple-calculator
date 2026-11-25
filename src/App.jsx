@@ -665,7 +665,22 @@ function CharCard({ c, r, startDate, includeToday, extra, onChange, onSymbol, on
         })}
       </div>
 
-      <LevelChart series={chartSeries} startDate={startDate} />
+      <div className="chart-grid">
+        {chartSeries
+          .filter((x) => !x.isMax && x.levelUps.length > 0)
+          .map((x) => (
+            <LevelChart
+              key={x.key}
+              series={[x]}
+              startDate={startDate}
+              title={`${x.name} 레벨 성장`}
+              subtitle={`MAX ${formatDate(x.levelUps[x.levelUps.length - 1].date)}`}
+            />
+          ))}
+      </div>
+      {chartSeries.some((x) => !x.isMax && x.levelUps.length > 0) && (
+        <p className="hint">세로축은 레벨이에요. 점에 마우스를 올리면 레벨업 날짜가 보여요.</p>
+      )}
 
       {open && (
         <div className="scroll">
