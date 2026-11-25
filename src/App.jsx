@@ -65,10 +65,25 @@ const makeChar = (name = "캐릭터", rates = DEFAULT_RATES) => ({
   },
 });
 
+const EMPTY_EVENT = () => ({ start: "", end: "", steps: [] });
+
 const defaultState = () => {
   const first = makeChar("캐릭터 1");
-  return { doneDay: null, activeId: first.id, ratesVersion: RATES_VERSION, extraSteps: [], chars: [first] };
+  return { doneDay: null, activeId: first.id, ratesVersion: RATES_VERSION, extraEvent: EMPTY_EVENT(), chars: [first] };
 };
+
+// 저장된 데이터에서 추가 수량 이벤트를 꺼낸다. 이전 버전(기간 없이 날짜별 수량만 있던 목록)도 옮긴다.
+function loadExtraEvent(parsed) {
+  const ev = parsed.extraEvent;
+  if (ev && typeof ev === "object" && Array.isArray(ev.steps)) {
+    return { start: ev.start || "", end: ev.end || "", steps: ev.steps };
+  }
+  if (Array.isArray(parsed.extraSteps) && parsed.extraSteps.length > 0) {
+    const dates = parsed.extraSteps.map((x) => x.start).filter(Boolean).sort();
+    return { start: dates[0] || "", end: "", steps: parsed.extraSteps };
+  }
+  return EMPTY_EVENT();
+}
 
 function loadState() {
   try {
@@ -108,7 +123,7 @@ function loadState() {
           activeId: parsed.activeId,
           ratesVersion: RATES_VERSION,
           // 예전 이벤트(기간, 심볼별 수량)는 새 "추가 수량" 방식과 달라서 옮기지 않는다
-          extraSteps: Array.isArray(parsed.extraSteps) ? parsed.extraSteps : [],
+          extraEvent: loadExtraEvent(parsed),
           chars: parsed.chars,
         };
       }
@@ -147,7 +162,7 @@ export default function App() {
   const doneToday = state.doneDay === dayKey;
   const includeToday = !doneToday;
 
-  const extra = useMemo(() => normalizeExtraSteps(state.extraSteps), [state.extraSteps]);
+  const extra = useMemo(() => normalizeExtraSteps(state.extraEvent), [state.extraEvent]);
 
   const results = useMemo(() => {
     return state.chars.map((c) => {
@@ -277,9 +292,9 @@ export default function App() {
           </span>
         </div>
         <ExtraEditor
-          steps={state.extraSteps}
+          event={state.extraEvent}
           today={startDate}
-          onChange={(extraSteps) => setState((s) => ({ ...s, extraSteps }))}
+          onChange={(extraEvent) => setState((s) => ({ ...s, extraEvent }))}
         />
         <p className="hint">
           캐릭터 탭마다 심볼별로 일일퀘스트 하루 획득량, 현재 레벨, 현재 보유 성장치를 입력하세요. 입력한 내용은 이
@@ -724,19 +739,42 @@ const fmtShort = (d) => `${d.getUTCMonth() + 1}.${String(d.getUTCDate()).padStar
 const fmtRange = (from, to) =>
   from.getTime() === to.getTime() ? fmtShort(from) : `${fmtShort(from)} ~ ${fmtShort(to)}`;
 
-function ExtraEditor({ steps, today, onChange }) {
-  const add = () => {
-    // 새 줄은 마지막 줄보다 하루 뒤 날짜를 비워 두고 시작한다
-    onChange([...steps, { id: newId(), start: "", amount: "" }]);
-  };
-  const update = (id, patch) => onChange(steps.map((e) => (e.id === id ? { ...e, ...patch } : e)));
-  const remove = (id) => onChange(steps.filter((e) => e.id !== id));
+function ExtraEditor({ event, today, onChange }) {
+  const steps = event.steps || [];
+  const setPeriod = (patch) => onChange({ ...event, ...patch });
+  const setSteps = (next) => onChange({ ...event, steps: next });
+  const add = () =>
+    // 첫 줄은 이벤트 시작일로 미리 채워 준다
+    setSteps([...steps, { id: newId(), start: steps.length === 0 ? event.start : "", amount: "" }]);
+  const update = (id, patch) => setSteps(steps.map((e) => (e.id === id ? { ...e, ...patch } : e)));
+  const remove = (id) => setSteps(steps.filter((e) => e.id !== id));
+
+  const hasPeriod = Boolean(event.start && event.end);
+  const periodBad = hasPeriod && parseDate(event.end) < parseDate(event.start);
+  const evStart = hasPeriod ? parseDate(event.start) : null;
+  const evEnd = hasPeriod ? parseDate(event.end) : null;
 
   const warnings = [];
+  if (!hasPeriod && (steps.length > 0 || event.start || event.end)) {
+    warnings.push("이벤트 시작일과 종료일을 모두 넣어야 추가 수량이 계산에 반영돼요.");
+  }
+  if (periodBad) warnings.push("이벤트 종료일이 시작일보다 앞서 있어서 계산에 반영되지 않아요.");
+  if (hasPeriod && !periodBad && evEnd < today) {
+    warnings.push("이미 끝난 이벤트라서 앞으로의 계산에는 영향이 없어요.");
+  }
   steps.forEach((e, i) => {
-    if (!e.start) warnings.push(`${i + 1}번째 줄: 시작일을 넣어야 계산에 반영돼요.`);
-    else if (e.amount === "" || !(Number(e.amount) >= 0)) {
-      warnings.push(`${i + 1}번째 줄: 추가 수량을 0 이상의 숫자로 넣어야 계산에 반영돼요.`);
+    const n = `${i + 1}번째 줄`;
+    if (!e.start) {
+      warnings.push(`${n}: 날짜를 넣어야 계산에 반영돼요.`);
+      return;
+    }
+    if (e.amount === "" || !(Number(e.amount) >= 0)) {
+      warnings.push(`${n}: 추가 수량을 0 이상의 숫자로 넣어야 계산에 반영돼요.`);
+    }
+    if (hasPeriod && !periodBad) {
+      const d = parseDate(e.start);
+      if (d > evEnd) warnings.push(`${n}: 이벤트 종료일 이후 날짜라서 적용되지 않아요.`);
+      else if (d < evStart) warnings.push(`${n}: 이벤트 시작일보다 앞선 날짜라서 시작일부터 적용돼요.`);
     }
   });
   const seen = {};
@@ -745,35 +783,69 @@ function ExtraEditor({ steps, today, onChange }) {
   });
   for (const [date, list] of Object.entries(seen)) {
     if (list.length > 1) {
-      warnings.push(
-        `${fmtShort(parseDate(date))} 시작일이 ${list.length}번 들어 있어요. 아래에 있는 줄의 수량만 적용돼요.`
-      );
+      warnings.push(`${fmtShort(parseDate(date))} 날짜가 ${list.length}번 들어 있어요. 아래에 있는 줄의 수량만 적용돼요.`);
     }
   }
 
-  const normalized = normalizeExtraSteps(steps);
+  const normalized = normalizeExtraSteps(event);
   const nowExtra = extraOn(normalized, today);
+
+  // 적용 구간 요약: "11.25~11.30 8, 12.01~12.10 9, 이후 0"
+  const segments = [];
+  if (normalized) {
+    const firstStart = normalized.steps.length ? normalized.steps[0].start : null;
+    if (!firstStart || firstStart > normalized.start) {
+      const to = firstStart ? addDays(firstStart, -1) : normalized.end;
+      if (to >= normalized.start) segments.push(`${fmtShort(normalized.start)}~${fmtShort(to > normalized.end ? normalized.end : to)} 0`);
+    }
+    normalized.steps.forEach((st, i) => {
+      if (st.start > normalized.end) return;
+      const next = normalized.steps[i + 1];
+      let to = next ? addDays(next.start, -1) : normalized.end;
+      if (to > normalized.end) to = normalized.end;
+      if (to < st.start) return; // 같은 날짜가 겹쳐 가려진 줄
+      segments.push(`${fmtShort(st.start)}~${fmtShort(to)} ${st.amount}`);
+    });
+  }
 
   return (
     <div className="events">
       <div className="row-between">
         <h3 className="sub-title no-top">
-          추가 수량 <span className="muted">(모든 심볼, 모든 캐릭터에 매일 적용)</span>
+          추가 수량 이벤트 <span className="muted">(모든 심볼, 모든 캐릭터에 매일 적용)</span>
         </h3>
-        <button onClick={add}>+ 추가</button>
       </div>
 
+      <div className="event-row">
+        <label className="field">
+          <span>이벤트 시작일</span>
+          <input type="date" value={event.start} onChange={(ev) => setPeriod({ start: ev.target.value })} />
+        </label>
+        <label className="field">
+          <span>이벤트 종료일</span>
+          <input type="date" value={event.end} onChange={(ev) => setPeriod({ end: ev.target.value })} />
+        </label>
+        {(event.start || event.end || steps.length > 0) && (
+          <button className="danger" onClick={() => onChange(EMPTY_EVENT())}>
+            이벤트 지우기
+          </button>
+        )}
+      </div>
+
+      <div className="row-between step-head">
+        <span className="amount-title">날짜별 매일 추가 수량</span>
+        <button onClick={add}>+ 추가</button>
+      </div>
       <p className="hint">
-        시작일을 넣고 매일 얻는 추가 수량을 적으세요. 아래 줄에 더 늦은 시작일과 다른 수량을 넣으면, 그날부터는 위 수량에
-        더해지지 않고 그 수량으로 바뀌어요. 예: 11.25부터 8 → 12.01부터 9라면 12.01부터는 하루 9개예요. 0을 넣으면 그날부터
-        추가 수량이 없어져요.
+        이벤트 기간 안에서 날짜와 매일 얻는 수량을 넣으세요. 아래 줄에 더 늦은 날짜와 다른 수량을 넣으면, 그날부터는 위 수량에
+        더해지지 않고 그 수량으로 바뀌어요. 이벤트 종료일이 지나면 추가 수량은 아예 없어져요.
       </p>
 
       {steps.map((e, i) => (
         <div className="event-row" key={e.id}>
           <span className="step-no">{i + 1}</span>
           <label className="field">
-            <span>시작일</span>
+            <span>날짜</span>
             <input type="date" value={e.start} onChange={(ev) => update(e.id, { start: ev.target.value })} />
           </label>
           <label className="field">
@@ -792,19 +864,10 @@ function ExtraEditor({ steps, today, onChange }) {
         </div>
       ))}
 
-      {normalized.length > 0 && (
+      {normalized && (
         <p className="hint">
           오늘(UTC) 적용 중인 추가 수량: <b>{nowExtra}</b>
-          {normalized.some((x) => x.start > today) && (
-            <>
-              {" "}
-              · 앞으로 바뀌는 날:{" "}
-              {normalized
-                .filter((x) => x.start > today)
-                .map((x) => `${fmtShort(x.start)}부터 ${x.amount}`)
-                .join(", ")}
-            </>
-          )}
+          {segments.length > 0 && <> · 구간: {segments.join(", ")}, {fmtShort(addDays(normalized.end, 1))}부터 0</>}
         </p>
       )}
 

@@ -137,31 +137,49 @@ assert.equal(
 );
 console.log("목표일 테스트 통과");
 
-// 5) 추가 수량: 시작일부터 매일, 더 늦은 시작일이 오면 더해지지 않고 값이 바뀐다
-const steps = normalizeExtraSteps([
-  { start: "2026-12-01", amount: 9 },
-  { start: "2026-11-25", amount: 8 }, // 입력 순서가 뒤바뀌어도 시작일 순으로 정렬
-]);
-assert.equal(extraOn(steps, parseDate("2026-11-24")), 0); // 시작 전
-assert.equal(extraOn(steps, parseDate("2026-11-25")), 8);
-assert.equal(extraOn(steps, parseDate("2026-11-30")), 8);
-assert.equal(extraOn(steps, parseDate("2026-12-01")), 9); // 8+9가 아니라 9
-assert.equal(extraOn(steps, parseDate("2027-01-31")), 9);
-// 추가량 0으로 끝낼 수 있다
-const stopSteps = normalizeExtraSteps([{ start: "2026-11-25", amount: 8 }, { start: "2026-11-27", amount: 0 }]);
-assert.equal(extraOn(stopSteps, parseDate("2026-11-26")), 8);
-assert.equal(extraOn(stopSteps, parseDate("2026-11-27")), 0);
-// 같은 시작일이면 아래에 입력한 항목이 적용
-const dup = normalizeExtraSteps([{ start: "2026-11-25", amount: 3 }, { start: "2026-11-25", amount: 7 }]);
+// 5) 추가 수량 이벤트: 기간 안에서만 적용, 날짜가 오면 더해지지 않고 값이 바뀐다, 끝나면 0
+const ev = normalizeExtraSteps({
+  start: "2026-11-25",
+  end: "2026-12-10",
+  steps: [
+    { start: "2026-12-01", amount: 9 },
+    { start: "2026-11-25", amount: 8 }, // 입력 순서가 뒤바뀌어도 날짜 순으로 정렬
+  ],
+});
+assert.equal(extraOn(ev, parseDate("2026-11-24")), 0); // 이벤트 시작 전
+assert.equal(extraOn(ev, parseDate("2026-11-25")), 8);
+assert.equal(extraOn(ev, parseDate("2026-11-30")), 8);
+assert.equal(extraOn(ev, parseDate("2026-12-01")), 9); // 8+9가 아니라 9
+assert.equal(extraOn(ev, parseDate("2026-12-10")), 9); // 종료일 포함
+assert.equal(extraOn(ev, parseDate("2026-12-11")), 0); // 이벤트 끝나면 추가 수량 없음
+assert.equal(extraOn(null, parseDate("2026-12-01")), 0);
+// 기간이 비었거나 잘못되면 추가 수량 없음
+assert.equal(normalizeExtraSteps({ start: "", end: "2026-12-10", steps: [{ start: "2026-11-25", amount: 8 }] }), null);
+assert.equal(normalizeExtraSteps({ start: "2026-12-10", end: "2026-12-01", steps: [] }), null);
+// 이벤트 시작보다 앞선 날짜는 이벤트 시작일로 본다
+const early = normalizeExtraSteps({ start: "2026-11-25", end: "2026-11-30", steps: [{ start: "2026-11-01", amount: 5 }] });
+assert.equal(extraOn(early, parseDate("2026-11-25")), 5);
+// 0으로 중간에 끊을 수 있다
+const stop = normalizeExtraSteps({
+  start: "2026-11-25", end: "2026-12-10",
+  steps: [{ start: "2026-11-25", amount: 8 }, { start: "2026-11-27", amount: 0 }],
+});
+assert.equal(extraOn(stop, parseDate("2026-11-26")), 8);
+assert.equal(extraOn(stop, parseDate("2026-11-27")), 0);
+// 같은 날짜면 아래 항목이 적용
+const dup = normalizeExtraSteps({ start: "2026-11-25", end: "2026-11-30", steps: [{ start: "2026-11-25", amount: 3 }, { start: "2026-11-25", amount: 7 }] });
 assert.equal(extraOn(dup, parseDate("2026-11-25")), 7);
-// 잘못된 항목은 무시
-assert.equal(normalizeExtraSteps([{ start: "", amount: 5 }, { start: "2026-11-25", amount: -1 }, { start: "2026-11-25", amount: "x" }]).length, 0);
+// 잘못된 수량 줄은 무시
+assert.equal(
+  normalizeExtraSteps({ start: "2026-11-25", end: "2026-11-30", steps: [{ start: "", amount: 5 }, { start: "2026-11-25", amount: -1 }, { start: "2026-11-25", amount: "x" }, { start: "2026-11-25", amount: "" }] }).steps.length,
+  0
+);
 
-// 시뮬레이션: 레벨 10, 성장치 1000 -> 남은 100. 일일 10, 11/25부터 +8, 12/01부터 +9
+// 시뮬레이션: 레벨 10, 성장치 1000 -> 남은 100. 일일 10, 이벤트 11/25~12/10 (+8, 12/01부터 +9)
 // 11/24: 10, 11/25부터 하루 18 -> 11/24(10) + 11/25~11/29(18*5=90) = 100 -> 11/29
 const ex1 = simulateSymbol({
   symbolKey: "cer", level: 10, progress: 1000, daily: 10, weekly: 0,
-  startDate: start, includeToday: true, extra: steps,
+  startDate: start, includeToday: true, extra: ev,
 });
 assert.equal(toDateStr(ex1.maxDate), "2026-11-29");
 // 추가량이 없으면 10일째(12/03)
@@ -170,21 +188,35 @@ const ex0 = simulateSymbol({
   startDate: start, includeToday: true,
 });
 assert.equal(toDateStr(ex0.maxDate), "2026-12-03");
-// 교체 확인: 일일 0, 11/24부터 +10, 11/26부터 +50 -> 11/24:10, 11/25:10, 11/26:50 (합 70), 11/27:50 (합 120) -> 11/27
+// 이벤트가 끝나면 추가 수량이 아예 없다: 일일 0, 이벤트 11/24~11/25 +10 -> 20만 모이고 끝 (남은 100 못 채움)
+const exEnd = simulateSymbol({
+  symbolKey: "cer", level: 10, progress: 1000, daily: 0, weekly: 0,
+  startDate: start, includeToday: true,
+  extra: normalizeExtraSteps({ start: "2026-11-24", end: "2026-11-25", steps: [{ start: "2026-11-24", amount: 10 }] }),
+});
+assert.equal(exEnd.maxDate, null);
+assert.equal(exEnd.days, Infinity);
+// 이벤트 안에서 교체: 일일 0, 11/24~12/31 +10, 11/26부터 +50 -> 10,10,50(70),50(120) -> 11/27
 const ex2 = simulateSymbol({
   symbolKey: "cer", level: 10, progress: 1000, daily: 0, weekly: 0,
   startDate: start, includeToday: true,
-  extra: normalizeExtraSteps([{ start: "2026-11-24", amount: 10 }, { start: "2026-11-26", amount: 50 }]),
+  extra: normalizeExtraSteps({ start: "2026-11-24", end: "2026-12-31", steps: [{ start: "2026-11-24", amount: 10 }, { start: "2026-11-26", amount: 50 }] }),
 });
 assert.equal(toDateStr(ex2.maxDate), "2026-11-27");
-assert.notEqual(ex2.days, Infinity); // 일일 0이어도 추가량만으로 계산 가능
 
-// 목표일 필요량에 추가량 반영: 11/24~12/03 10일, 추가 +10/일 -> 총 100이라 필요 0
+// 목표일 필요량에 반영: 11/24~12/03 10일, 이벤트 +10/일 -> 총 100이라 필요 0
 assert.equal(
   requiredDaily({ level: 10, progress: 1000, weekly: 0, startDate: start, includeToday: true,
     targetDate: parseDate("2026-12-03"),
-    extra: normalizeExtraSteps([{ start: "2026-11-24", amount: 10 }]) }),
+    extra: normalizeExtraSteps({ start: "2026-11-24", end: "2026-12-03", steps: [{ start: "2026-11-24", amount: 10 }] }) }),
   0
+);
+// 이벤트가 중간에 끝나면 그 뒤는 반영 안 됨: 이벤트 11/24~11/28(5일 +10=50) -> 남은 50 / 10일 -> 5
+assert.equal(
+  requiredDaily({ level: 10, progress: 1000, weekly: 0, startDate: start, includeToday: true,
+    targetDate: parseDate("2026-12-03"),
+    extra: normalizeExtraSteps({ start: "2026-11-24", end: "2026-11-28", steps: [{ start: "2026-11-24", amount: 10 }] }) }),
+  5
 );
 
 // 6) 못하는 날에는 추가량도 안 들어온다
@@ -192,7 +224,7 @@ const off6 = normalizeOffDays([{ start: "2026-11-25", end: "2026-11-27" }]);
 const ex3 = simulateSymbol({
   symbolKey: "cer", level: 10, progress: 1000, daily: 0, weekly: 0,
   startDate: start, includeToday: true, offDays: off6,
-  extra: normalizeExtraSteps([{ start: "2026-11-24", amount: 20 }]),
+  extra: normalizeExtraSteps({ start: "2026-11-24", end: "2026-12-31", steps: [{ start: "2026-11-24", amount: 20 }] }),
 });
 // 11/24(20), 11/25~27 쉼, 11/28(40) 11/29(60) 11/30(80) 12/01(100)
 assert.equal(toDateStr(ex3.maxDate), "2026-12-01");

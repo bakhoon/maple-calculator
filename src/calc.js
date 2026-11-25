@@ -42,30 +42,41 @@ export function toDateStr(date) {
  *  levelUps: 레벨업이 가능해지는 날짜 목록 [{ level, date, mesoCost }]
  */
 /**
- * 추가 수량: 시작일부터 매일 얻는 추가량. 모든 심볼, 모든 캐릭터에 똑같이 적용된다.
- * 목록: [{ start: "YYYY-MM-DD", amount }]
- * 더 늦은 시작일의 항목이 시작되는 날부터는 앞 항목에 더해지지 않고, 그 값으로 바뀐다.
- * (같은 시작일이 여러 개면 목록에서 아래에 있는 항목이 적용된다)
+ * 추가 수량 이벤트: 하나의 이벤트 기간 안에서 날짜별로 매일 얻는 추가량을 정한다.
+ * 입력: { start: "YYYY-MM-DD", end: "YYYY-MM-DD", steps: [{ start: "YYYY-MM-DD", amount }] }
+ * - 이벤트 시작일~종료일(포함) 동안만 추가 수량이 들어오고, 기간 밖에서는 0이다.
+ * - steps의 날짜가 되면 그날부터 앞 수량에 더해지지 않고 그 수량으로 바뀐다.
+ * - 이벤트 시작일보다 앞선 step 날짜는 이벤트 시작일로 본다.
+ * - 같은 날짜가 여러 개면 목록에서 아래에 있는 항목이 적용된다.
+ * 이벤트 기간이 비었거나 잘못되면 null (추가 수량 없음).
  */
-export function normalizeExtraSteps(steps) {
+export function normalizeExtraSteps(ev) {
+  if (!ev || !ev.start || !ev.end) return null;
+  const start = parseDate(ev.start);
+  const end = parseDate(ev.end);
+  if (end < start) return null;
   const out = [];
-  for (const e of steps || []) {
+  for (const e of ev.steps || []) {
     if (!e.start) continue;
+    if (e.amount === "" || e.amount === null || e.amount === undefined) continue;
     const amount = Number(e.amount);
     if (!Number.isFinite(amount) || amount < 0) continue;
-    out.push({ start: parseDate(e.start), amount });
+    const d = parseDate(e.start);
+    out.push({ start: d < start ? start : d, amount });
   }
-  // 시작일 순으로 정렬 (같은 날짜는 입력한 순서를 유지)
-  return out
+  // 날짜 순 정렬 (같은 날짜는 입력한 순서를 유지)
+  const steps = out
     .map((x, i) => ({ x, i }))
     .sort((p, q) => p.x.start - q.x.start || p.i - q.i)
     .map(({ x }) => x);
+  return { start, end, steps };
 }
 
-/** 그 날짜에 적용되는 하루 추가량 (시작일 전이면 0) */
+/** 그 날짜에 적용되는 하루 추가량 (이벤트 기간 밖이거나 첫 수량 날짜 전이면 0) */
 export function extraOn(extra, date) {
+  if (!extra || date < extra.start || date > extra.end) return 0;
   let amount = 0;
-  for (const e of extra) {
+  for (const e of extra.steps) {
     if (e.start <= date) amount = e.amount;
     else break;
   }
@@ -126,7 +137,7 @@ export function simulateSymbol({
   weekly,
   startDate,
   includeToday,
-  extra = [],
+  extra = null,
   offDays = [],
 }) {
   const lvl = Math.min(Math.max(level, 1), MAX_LEVEL);
@@ -153,7 +164,7 @@ export function simulateSymbol({
   let maxDate = null;
   let days = 0;
 
-  if (daily <= 0 && weekly <= 0 && !extra.some((e) => e.amount > 0)) {
+  if (daily <= 0 && weekly <= 0 && !(extra && extra.steps.some((e) => e.amount > 0))) {
     return {
       isMax: false,
       days: Infinity,
@@ -224,7 +235,7 @@ export function requiredDaily({
   startDate,
   includeToday,
   targetDate,
-  extra = [],
+  extra = null,
   offDays = [],
 }) {
   const lvl = Math.min(Math.max(level, 1), MAX_LEVEL);

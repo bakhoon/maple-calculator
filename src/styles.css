@@ -635,3 +635,7 @@ th {
   font-size: 12px;
   margin-bottom: 4px;
 }
+
+.step-head {
+  margin-top: 14px;
+}
