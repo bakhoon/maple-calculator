@@ -56,7 +56,6 @@ const makeChar = (name = "새 캐릭터", rates = DEFAULT_RATES) => ({
 });
 
 const defaultState = () => ({
-  startDate: toDateStr(new Date()),
   includeToday: true,
   rates: DEFAULT_RATES,
   chars: [makeChar("캐릭터 1")],
@@ -110,7 +109,8 @@ export default function App() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   }, [state]);
 
-  const startDate = useMemo(() => parseDate(state.startDate), [state.startDate]);
+  // 항상 오늘(로컬 기준)부터 시작한다고 가정한다
+  const startDate = useMemo(() => parseDate(toDateStr(new Date())), []);
 
   const results = useMemo(() => {
     return state.chars.map((c) => {
@@ -208,27 +208,23 @@ export default function App() {
     <div className="app">
       <header className="top">
         <h1>어센틱 포스 MAX 계산기</h1>
-        <p className="sub">캐릭터별로 세르니움, 아르크스, 오디움 심볼을 언제 MAX(11레벨)까지 올릴 수 있는지 계산합니다.</p>
+        <p className="sub">오늘부터 매일 꾸준히 하면 각 심볼을 언제 MAX(11레벨)까지 올릴 수 있는지 계산합니다.</p>
       </header>
 
       <section className="card">
         <h2>공통 설정</h2>
         <div className="settings">
-          <label className="field">
-            <span>시작일</span>
-            <input
-              type="date"
-              value={state.startDate}
-              onChange={(e) => e.target.value && setState((s) => ({ ...s, startDate: e.target.value }))}
-            />
-          </label>
+          <div className="today">
+            <span className="muted">기준일 (오늘)</span>
+            <b>{formatDate(startDate)}</b>
+          </div>
           <label className="check">
             <input
               type="checkbox"
               checked={state.includeToday}
               onChange={(e) => setState((s) => ({ ...s, includeToday: e.target.checked }))}
             />
-            시작일 당일 일일퀘스트 포함
+            오늘 일일퀘스트도 아직 안 했으면 포함
           </label>
         </div>
 
@@ -569,7 +565,7 @@ function CharCard({ c, r, startDate, includeToday, onChange, onSymbol, onCopy, o
                     return (
                       <div className={`target-result ${ok ? "ok" : "no"}`}>
                         {need === Infinity
-                          ? "목표일이 시작일보다 앞서요"
+                          ? "목표일이 오늘보다 앞서요"
                           : `목표일까지 하루 ${need.toLocaleString()} 필요 (현재 ${num(cfg.daily)})`}
                         <br />
                         {ok ? "지금 수급량으로 달성 가능" : "지금 수급량으로는 부족"}

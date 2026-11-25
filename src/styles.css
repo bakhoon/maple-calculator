@@ -441,3 +441,14 @@ th {
   color: var(--muted);
   text-align: right;
 }
+
+.today {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.today b {
+  font-size: 16px;
+}
