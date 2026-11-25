@@ -32,16 +32,19 @@ const STORAGE_KEY = "authentic-force-calc:v1";
 
 const newId = () => Math.random().toString(36).slice(2, 9);
 
+// 일일퀘스트로 하루에 얻는 기본 성장치: 세르니움 30, 나머지 15
 const DEFAULT_RATES = {
-  cer: { daily: 10, weekly: 0 },
-  arc: { daily: 10, weekly: 0 },
-  odi: { daily: 10, weekly: 0 },
-  dow: { daily: 10, weekly: 0 },
-  art: { daily: 10, weekly: 0 },
-  car: { daily: 10, weekly: 0 },
-  tal: { daily: 10, weekly: 0 },
-  gea: { daily: 10, weekly: 0 },
+  cer: { daily: 30, weekly: 0 },
+  arc: { daily: 15, weekly: 0 },
+  odi: { daily: 15, weekly: 0 },
+  dow: { daily: 15, weekly: 0 },
+  art: { daily: 15, weekly: 0 },
+  car: { daily: 15, weekly: 0 },
+  tal: { daily: 15, weekly: 0 },
+  gea: { daily: 15, weekly: 0 },
 };
+
+const RATES_VERSION = 2;
 
 const makeChar = (name = "캐릭터", rates = DEFAULT_RATES) => ({
   id: newId(),
@@ -64,7 +67,7 @@ const makeChar = (name = "캐릭터", rates = DEFAULT_RATES) => ({
 
 const defaultState = () => {
   const first = makeChar("캐릭터 1");
-  return { includeToday: true, activeId: first.id, chars: [first] };
+  return { includeToday: true, activeId: first.id, ratesVersion: RATES_VERSION, chars: [first] };
 };
 
 function loadState() {
@@ -95,9 +98,23 @@ function loadState() {
             return { ...rest, amounts };
           });
         }
+        // 예전 기본값(하루 10)을 그대로 두고 있던 값은 새 기본값으로 한 번만 바꿔준다
+        if ((parsed.ratesVersion || 1) < RATES_VERSION) {
+          for (const c of parsed.chars) {
+            for (const sym of SYMBOLS) {
+              const cfg = c.symbols[sym.key];
+              if (Number(cfg.daily) === 10) cfg.daily = DEFAULT_RATES[sym.key].daily;
+            }
+          }
+        }
         if (!parsed.chars.some((c) => c.id === parsed.activeId)) parsed.activeId = parsed.chars[0].id;
         if (parsed.includeToday === undefined) parsed.includeToday = true;
-        return { includeToday: parsed.includeToday, activeId: parsed.activeId, chars: parsed.chars };
+        return {
+          includeToday: parsed.includeToday,
+          activeId: parsed.activeId,
+          ratesVersion: RATES_VERSION,
+          chars: parsed.chars,
+        };
       }
     }
   } catch {
