@@ -24,25 +24,27 @@ const STORAGE_KEY = "authentic-force-calc:v1";
 
 const newId = () => Math.random().toString(36).slice(2, 9);
 
-const makeChar = (name = "새 캐릭터") => ({
+const DEFAULT_RATES = {
+  cer: { daily: 10, weekly: 0 },
+  arc: { daily: 10, weekly: 0 },
+  odi: { daily: 10, weekly: 0 },
+};
+
+const makeChar = (name = "새 캐릭터", rates = DEFAULT_RATES) => ({
   id: newId(),
   name,
   cls: "normal",
   symbols: {
-    cer: { on: true, level: 1, progress: 0 },
-    arc: { on: false, level: 1, progress: 0 },
-    odi: { on: false, level: 1, progress: 0 },
+    cer: { on: true, level: 1, progress: 0, ...rates.cer },
+    arc: { on: false, level: 1, progress: 0, ...rates.arc },
+    odi: { on: false, level: 1, progress: 0, ...rates.odi },
   },
 });
 
 const defaultState = () => ({
   startDate: toDateStr(new Date()),
   includeToday: true,
-  rates: {
-    cer: { daily: 10, weekly: 0 },
-    arc: { daily: 10, weekly: 0 },
-    odi: { daily: 10, weekly: 0 },
-  },
+  rates: DEFAULT_RATES,
   chars: [makeChar("캐릭터 1")],
 });
 
@@ -51,7 +53,17 @@ function loadState() {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (parsed && parsed.chars && parsed.rates) return parsed;
+      if (parsed && parsed.chars && parsed.rates) {
+        // 이전 버전 데이터: 캐릭터별 수급량이 없으면 공통 기본값으로 채운다
+        for (const c of parsed.chars) {
+          for (const sym of SYMBOLS) {
+            const cfg = c.symbols[sym.key];
+            if (cfg.daily === undefined) cfg.daily = parsed.rates[sym.key].daily;
+            if (cfg.weekly === undefined) cfg.weekly = parsed.rates[sym.key].weekly;
+          }
+        }
+        return parsed;
+      }
     }
   } catch {
     /* ignore */
@@ -91,13 +103,12 @@ export default function App() {
 
       for (const s of SYMBOLS) {
         const cfg = c.symbols[s.key];
-        const rate = state.rates[s.key];
         const sim = simulateSymbol({
           symbolKey: s.key,
           level: cfg.level,
           progress: num(cfg.progress),
-          daily: num(rate.daily),
-          weekly: num(rate.weekly),
+          daily: num(cfg.daily),
+          weekly: num(cfg.weekly),
           startDate,
           includeToday: state.includeToday,
         });
@@ -145,7 +156,7 @@ export default function App() {
   const addChar = () =>
     setState((s) => ({
       ...s,
-      chars: [...s.chars, makeChar(`캐릭터 ${s.chars.length + 1}`)],
+      chars: [...s.chars, makeChar(`캐릭터 ${s.chars.length + 1}`, s.rates)],
     }));
 
   const copyChar = (id) =>
@@ -205,8 +216,8 @@ export default function App() {
           <thead>
             <tr>
               <th>심볼</th>
-              <th>일일 성장치</th>
-              <th>주간 추가 성장치 (목요일 기준)</th>
+              <th>새 캐릭터 기본 일일 성장치</th>
+              <th>새 캐릭터 기본 주간 성장치 (목요일)</th>
               <th>MAX까지 총 성장치</th>
             </tr>
           </thead>
@@ -239,8 +250,8 @@ export default function App() {
           </tbody>
         </table>
         <p className="hint">
-          일일/주간 성장치는 게임 내 실제 수급량에 맞게 직접 수정하세요. 하루 한 번 퀘스트로 얻는 양을 일일에,
-          주간 보너스가 있다면 주간에 입력하면 됩니다.
+          여기 값은 새 캐릭터를 추가할 때 들어가는 기본값입니다. 이미 만든 캐릭터의 수급량은 각 캐릭터 카드에서
+          심볼별로 따로 수정하세요.
         </p>
       </section>
 
@@ -426,6 +437,29 @@ function CharCard({ c, r, startDate, onChange, onSymbol, onCopy, onRemove, canRe
                     disabled={!cfg.on || cfg.level >= MAX_LEVEL}
                     value={cfg.progress}
                     onChange={(e) => onSymbol(s.key, { progress: e.target.value })}
+                  />
+                </label>
+              </div>
+
+              <div className="inputs rate-inputs">
+                <label className="field">
+                  <span>일일 성장치</span>
+                  <input
+                    type="number"
+                    min="0"
+                    disabled={!cfg.on}
+                    value={cfg.daily}
+                    onChange={(e) => onSymbol(s.key, { daily: e.target.value })}
+                  />
+                </label>
+                <label className="field">
+                  <span>주간 추가 (목)</span>
+                  <input
+                    type="number"
+                    min="0"
+                    disabled={!cfg.on}
+                    value={cfg.weekly}
+                    onChange={(e) => onSymbol(s.key, { weekly: e.target.value })}
                   />
                 </label>
               </div>

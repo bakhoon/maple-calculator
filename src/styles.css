@@ -303,3 +303,7 @@ th {
 .summary .name {
   font-weight: 700;
 }
+
+.rate-inputs {
+  margin-top: 10px;
+}
