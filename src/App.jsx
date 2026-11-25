@@ -12,8 +12,10 @@ import {
   GRAND_BONUS_AT,
   TOTAL_GROWTH,
 } from "./data.js";
+import { LevelChart, CompareChart } from "./Charts.jsx";
 import {
   simulateSymbol,
+  requiredDaily,
   formatDate,
   formatMeso,
   parseDate,
@@ -40,6 +42,7 @@ const makeChar = (name = "새 캐릭터", rates = DEFAULT_RATES) => ({
   id: newId(),
   name,
   cls: "normal",
+  target: "",
   symbols: {
     cer: { on: true, level: 1, progress: 0, ...rates.cer },
     arc: { on: false, level: 1, progress: 0, ...rates.arc },
@@ -328,6 +331,19 @@ export default function App() {
             </tbody>
           </table>
         </div>
+        <h3 className="sub-title">전부 MAX까지 걸리는 기간</h3>
+        <CompareChart
+          rows={state.chars.map((c, i) => {
+            const r = results[i];
+            return {
+              id: c.id,
+              name: c.name,
+              done: r.allMax,
+              days: r.allMax ? 0 : r.latest && r.anyOn ? Math.round((r.latest - startDate) / 86400000) : null,
+              date: r.latest,
+            };
+          })}
+        />
       </section>
 
       {state.chars.map((c, i) => (
@@ -336,6 +352,7 @@ export default function App() {
           c={c}
           r={results[i]}
           startDate={startDate}
+          includeToday={state.includeToday}
           onChange={(patch) => updateChar(c.id, patch)}
           onSymbol={(key, patch) => updateSymbol(c.id, key, patch)}
           onCopy={() => copyChar(c.id)}
@@ -361,9 +378,18 @@ export default function App() {
   );
 }
 
-function CharCard({ c, r, startDate, onChange, onSymbol, onCopy, onRemove, canRemove }) {
+function CharCard({ c, r, startDate, includeToday, onChange, onSymbol, onCopy, onRemove, canRemove }) {
   const [open, setOpen] = useState(false);
   const cls = CLASS_TYPES.find((t) => t.key === c.cls);
+  const target = c.target ? parseDate(c.target) : null;
+  const chartSeries = SYMBOLS.filter((s) => c.symbols[s.key].on).map((s) => ({
+    key: s.key,
+    name: s.name,
+    color: s.color,
+    startLevel: c.symbols[s.key].level,
+    levelUps: r.perSymbol[s.key].levelUps,
+    isMax: r.perSymbol[s.key].isMax,
+  }));
 
   return (
     <section className="card">
@@ -405,6 +431,23 @@ function CharCard({ c, r, startDate, onChange, onSymbol, onCopy, onRemove, canRe
             : r.impossible
             ? "수급량을 입력하세요"
             : `전부 MAX ${formatDate(r.latest)} (${dDay(startDate, r.latest)})`}
+        </span>
+      </div>
+
+      <div className="target-row">
+        <label className="field">
+          <span>목표 날짜 (선택)</span>
+          <input
+            type="date"
+            value={c.target || ""}
+            onChange={(e) => onChange({ target: e.target.value })}
+          />
+        </label>
+        {c.target && (
+          <button onClick={() => onChange({ target: "" })}>목표 지우기</button>
+        )}
+        <span className="muted target-hint">
+          목표 날짜를 정하면 심볼마다 그날까지 하루에 얼마를 올려야 하는지 보여줘요.
         </span>
       </div>
 
@@ -513,12 +556,34 @@ function CharCard({ c, r, startDate, onChange, onSymbol, onCopy, onRemove, canRe
                     <span>남은 메소</span>
                     <b>{formatMeso(sim.remainingMeso)}</b>
                   </div>
+                  {target && !sim.isMax && (() => {
+                    const need = requiredDaily({
+                      level: cfg.level,
+                      progress: num(cfg.progress),
+                      weekly: num(cfg.weekly),
+                      startDate,
+                      includeToday,
+                      targetDate: target,
+                    });
+                    const ok = sim.maxDate && sim.maxDate <= target;
+                    return (
+                      <div className={`target-result ${ok ? "ok" : "no"}`}>
+                        {need === Infinity
+                          ? "목표일이 시작일보다 앞서요"
+                          : `목표일까지 하루 ${need.toLocaleString()} 필요 (현재 ${num(cfg.daily)})`}
+                        <br />
+                        {ok ? "지금 수급량으로 달성 가능" : "지금 수급량으로는 부족"}
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
             </div>
           );
         })}
       </div>
+
+      <LevelChart series={chartSeries} startDate={startDate} />
 
       {open && (
         <div className="scroll">

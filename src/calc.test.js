@@ -112,3 +112,20 @@ const r5 = simulateSymbol({
 assert.equal(toDateStr(r5.maxDate), "2026-11-26");
 
 console.log("모든 테스트 통과");
+
+// 4) 목표일까지 필요한 일일 성장치: 레벨 10, 성장치 1000 -> 남은 100, 10일(11/24~12/03) 이면 10
+import { requiredDaily } from "./calc.js";
+assert.equal(
+  requiredDaily({ level: 10, progress: 1000, weekly: 0, startDate: start, includeToday: true, targetDate: parseDate("2026-12-03") }),
+  10
+);
+assert.equal(
+  requiredDaily({ level: 11, progress: 0, weekly: 0, startDate: start, includeToday: true, targetDate: parseDate("2026-12-03") }),
+  0
+);
+// 주간 보너스 반영: 위 기간에 목요일(11/26, 12/03) 2번 x 40 = 80 -> 남은 20 / 10일 = 2
+assert.equal(
+  requiredDaily({ level: 10, progress: 1000, weekly: 40, startDate: start, includeToday: true, targetDate: parseDate("2026-12-03") }),
+  2
+);
+console.log("목표일 테스트 통과");

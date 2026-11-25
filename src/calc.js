@@ -125,3 +125,26 @@ export function formatDate(date) {
     date.getDate()
   ).padStart(2, "0")} (${days[date.getDay()]})`;
 }
+
+/**
+ * 목표 날짜까지 MAX를 만들기 위해 하루에 필요한 성장치.
+ * 시작일(includeToday에 따라 당일 제외)부터 목표일까지 매일 얻는다고 가정하고,
+ * 그 사이 목요일마다 들어오는 주간 보너스는 미리 빼서 계산한다.
+ */
+export function requiredDaily({ level, progress, weekly, startDate, includeToday, targetDate }) {
+  const lvl = Math.min(Math.max(level, 1), MAX_LEVEL);
+  if (lvl >= MAX_LEVEL) return 0;
+  const cap = NEED_GROWTH[lvl - 1] - 1;
+  const prog = Math.min(Math.max(progress || 0, 0), cap);
+  const remaining = TOTAL_GROWTH - (CUM_GROWTH[lvl - 1] + prog);
+
+  let dayCount = 0;
+  let thursdays = 0;
+  for (let d = new Date(startDate), i = 0; d <= targetDate; i++, d = addDays(startDate, i)) {
+    if (i === 0 && !includeToday) continue;
+    dayCount++;
+    if (d.getDay() === WEEKLY_RESET_DAY) thursdays++;
+  }
+  if (dayCount <= 0) return Infinity;
+  return Math.max(0, Math.ceil((remaining - thursdays * weekly) / dayCount));
+}
