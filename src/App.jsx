@@ -17,7 +17,10 @@ import {
   simulateSymbol,
   requiredDaily,
   normalizeEvents,
+  normalizeOffDays,
+  countOffDays,
   findEventOverlaps,
+  findOffDayOverlaps,
   formatDate,
   formatMeso,
   parseDate,
@@ -46,6 +49,7 @@ const makeChar = (name = "캐릭터", rates = DEFAULT_RATES) => ({
   cls: "normal",
   target: "",
   events: [],
+  offDays: [],
   symbols: {
     cer: { on: true, level: 1, progress: 0, ...rates.cer },
     arc: { on: false, level: 1, progress: 0, ...rates.arc },
@@ -78,7 +82,19 @@ function loadState() {
             if (cfg.weekly === undefined) cfg.weekly = DEFAULT_RATES[sym.key].weekly;
           }
         }
-        for (const c of parsed.chars) if (!Array.isArray(c.events)) c.events = [];
+        for (const c of parsed.chars) {
+          if (!Array.isArray(c.events)) c.events = [];
+          if (!Array.isArray(c.offDays)) c.offDays = [];
+          // 이전 형식(이벤트 하나에 심볼 하나, 수량 하나)을 심볼별 수량으로 바꾼다
+          c.events = c.events.map((e) => {
+            if (e.amounts) return e;
+            const amounts = {};
+            const targets = e.symbol === "all" || !e.symbol ? SYMBOLS.map((x) => x.key) : [e.symbol];
+            for (const k of targets) amounts[k] = e.amount;
+            const { symbol: _s, amount: _a, ...rest } = e;
+            return { ...rest, amounts };
+          });
+        }
         if (!parsed.chars.some((c) => c.id === parsed.activeId)) parsed.activeId = parsed.chars[0].id;
         if (parsed.includeToday === undefined) parsed.includeToday = true;
         return { includeToday: parsed.includeToday, activeId: parsed.activeId, chars: parsed.chars };
@@ -132,6 +148,7 @@ export default function App() {
           startDate,
           includeToday: state.includeToday,
           events: normalizeEvents(c.events, s.key),
+          offDays: normalizeOffDays(c.offDays),
         });
         perSymbol[s.key] = sim;
         if (!cfg.on) continue;
@@ -415,7 +432,13 @@ function CharCard({ c, r, startDate, includeToday, onChange, onSymbol, onCopy, o
         </span>
       </div>
 
-      <EventEditor events={c.events || []} onChange={(events) => onChange({ events })} />
+      <EventEditor
+        events={c.events || []}
+        symbols={SYMBOLS.filter((x) => c.symbols[x.key].on)}
+        onChange={(events) => onChange({ events })}
+      />
+
+      <OffDayEditor offDays={c.offDays || []} onChange={(offDays) => onChange({ offDays })} />
 
       <div className="target-row">
         <label className="field">
@@ -548,13 +571,14 @@ function CharCard({ c, r, startDate, includeToday, onChange, onSymbol, onCopy, o
                       includeToday,
                       targetDate: target,
                       events: normalizeEvents(c.events, s.key),
+                      offDays: normalizeOffDays(c.offDays),
                     });
                     const ok = sim.maxDate && sim.maxDate <= target;
                     return (
                       <div className={`target-result ${ok ? "ok" : "no"}`}>
                         {need === Infinity
                           ? "목표일이 오늘보다 앞서요"
-                          : `목표일까지 하루 ${need.toLocaleString()} 필요 (현재 ${num(cfg.daily)})`}
+                          : `목표일까지 할 수 있는 날마다 ${need.toLocaleString()} 필요 (현재 ${num(cfg.daily)})`}
                         <br />
                         {ok ? "지금 수급량으로 달성 가능" : "지금 수급량으로는 부족"}
                       </div>
@@ -672,25 +696,24 @@ function RefTable() {
 }
 
 const fmtShort = (d) => `${d.getMonth() + 1}.${String(d.getDate()).padStart(2, "0")}`;
+const fmtRange = (from, to) =>
+  from.getTime() === to.getTime() ? fmtShort(from) : `${fmtShort(from)} ~ ${fmtShort(to)}`;
 
-function EventEditor({ events, onChange }) {
+function EventEditor({ events, symbols, onChange }) {
   const add = () =>
     onChange([
       ...events,
-      {
-        id: newId(),
-        name: `이벤트 ${events.length + 1}`,
-        symbol: "all",
-        amount: 5,
-        start: "",
-        end: "",
-      },
+      { id: newId(), name: `이벤트 ${events.length + 1}`, start: "", end: "", amounts: {} },
     ]);
   const update = (id, patch) => onChange(events.map((e) => (e.id === id ? { ...e, ...patch } : e)));
+  const setAmount = (id, key, value) =>
+    onChange(
+      events.map((e) => (e.id === id ? { ...e, amounts: { ...(e.amounts || {}), [key]: value } } : e))
+    );
   const remove = (id) => onChange(events.filter((e) => e.id !== id));
 
-  const overlaps = findEventOverlaps(events);
   const nameOf = (e) => e.name || "(이름 없음)";
+  const symName = (k) => SYMBOLS.find((x) => x.key === k)?.name || k;
   const warnings = [];
 
   for (const e of events) {
@@ -699,15 +722,13 @@ function EventEditor({ events, onChange }) {
     } else if (parseDate(e.end) < parseDate(e.start)) {
       warnings.push(`"${nameOf(e)}": 종료일이 시작일보다 앞서 있어서 계산에 반영되지 않아요.`);
     }
-    if (!(Number(e.amount) > 0)) {
-      warnings.push(`"${nameOf(e)}": 하루 수량이 0보다 커야 계산에 반영돼요.`);
-    }
+    const any = Object.values(e.amounts || {}).some((v) => Number(v) > 0);
+    if (!any) warnings.push(`"${nameOf(e)}": 추가 수량이 하나도 없어서 계산에 반영되지 않아요.`);
   }
-  for (const o of overlaps) {
-    const range =
-      o.from.getTime() === o.to.getTime() ? fmtShort(o.from) : `${fmtShort(o.from)} ~ ${fmtShort(o.to)}`;
+  for (const o of findEventOverlaps(events)) {
     warnings.push(
-      `"${nameOf(o.a)}" 와(과) "${nameOf(o.b)}" 이벤트 날짜가 ${range}에 겹쳐요. 겹치는 날에는 두 수량이 모두 더해져요.`
+      `"${nameOf(o.a)}" 와(과) "${nameOf(o.b)}" 이벤트 날짜가 ${fmtRange(o.from, o.to)}에 겹쳐요. ` +
+        `${o.symbols.map(symName).join(", ")} 심볼은 겹치는 날에 두 수량이 모두 더해져요.`
     );
   }
 
@@ -720,45 +741,116 @@ function EventEditor({ events, onChange }) {
 
       {events.length === 0 && (
         <p className="hint">
-          이 캐릭터만의 이벤트가 있으면 추가하세요. 기간 동안 하루에 더 얻는 수량이 일일퀘스트 획득량에 더해져서 계산돼요.
+          이 캐릭터만의 이벤트가 있으면 추가하세요. 기간 동안 심볼마다 하루에 더 얻는 수량이 일일퀘스트 획득량에 더해져서
+          계산돼요. 수량이 비어 있거나 0인 심볼은 적용되지 않아요.
         </p>
       )}
 
       {events.map((e) => (
-        <div className="event-row" key={e.id}>
-          <label className="field">
-            <span>이름</span>
-            <input value={e.name} onChange={(ev) => update(e.id, { name: ev.target.value })} />
-          </label>
-          <label className="field">
-            <span>적용 심볼</span>
-            <select value={e.symbol} onChange={(ev) => update(e.id, { symbol: ev.target.value })}>
-              <option value="all">전체 심볼</option>
-              {SYMBOLS.map((x) => (
-                <option key={x.key} value={x.key}>
-                  {x.name}
-                </option>
+        <div className="event-card" key={e.id}>
+          <div className="event-row">
+            <label className="field">
+              <span>이름</span>
+              <input value={e.name} onChange={(ev) => update(e.id, { name: ev.target.value })} />
+            </label>
+            <label className="field">
+              <span>시작일</span>
+              <input type="date" value={e.start} onChange={(ev) => update(e.id, { start: ev.target.value })} />
+            </label>
+            <label className="field">
+              <span>종료일</span>
+              <input type="date" value={e.end} onChange={(ev) => update(e.id, { end: ev.target.value })} />
+            </label>
+            <button className="danger" onClick={() => remove(e.id)}>
+              삭제
+            </button>
+          </div>
+          {symbols.length === 0 ? (
+            <p className="hint">위에서 심볼을 하나 이상 켜면 심볼별 수량을 입력할 수 있어요.</p>
+          ) : (
+            <div className="amount-row">
+              {symbols.map((x) => (
+                <label className="field amount" key={x.key}>
+                  <span>
+                    <i className="dot" style={{ background: x.color }} />
+                    {x.name} 하루 +
+                  </span>
+                  <input
+                    type="number"
+                    min="0"
+                    placeholder="0"
+                    value={(e.amounts && e.amounts[x.key]) ?? ""}
+                    onChange={(ev) => setAmount(e.id, x.key, ev.target.value)}
+                  />
+                </label>
               ))}
-            </select>
-          </label>
-          <label className="field">
-            <span>하루 추가 수량</span>
-            <input
-              type="number"
-              min="0"
-              value={e.amount}
-              onChange={(ev) => update(e.id, { amount: ev.target.value })}
-            />
-          </label>
+            </div>
+          )}
+        </div>
+      ))}
+
+      {warnings.length > 0 && (
+        <ul className="warnings" role="alert">
+          {warnings.map((w, i) => (
+            <li key={i}>⚠ {w}</li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function OffDayEditor({ offDays, onChange }) {
+  const add = () => onChange([...offDays, { id: newId(), start: "", end: "", note: "" }]);
+  const update = (id, patch) => onChange(offDays.map((o) => (o.id === id ? { ...o, ...patch } : o)));
+  const remove = (id) => onChange(offDays.filter((o) => o.id !== id));
+
+  const label = (o) => (o.note ? `"${o.note}"` : o.start ? fmtShort(parseDate(o.start)) : "(날짜 없음)");
+  const warnings = [];
+  for (const o of offDays) {
+    if (!o.start && (o.end || o.note)) warnings.push(`${label(o)}: 시작일을 넣어야 계산에 반영돼요.`);
+    else if (o.start && o.end && parseDate(o.end) < parseDate(o.start))
+      warnings.push(`${label(o)}: 종료일이 시작일보다 앞서 있어서 계산에 반영되지 않아요.`);
+  }
+  for (const x of findOffDayOverlaps(offDays)) {
+    warnings.push(
+      `${label(x.a)} 와(과) ${label(x.b)} 날짜가 ${fmtRange(x.from, x.to)}에 겹쳐요. 겹친 날은 한 번만 쉬는 걸로 계산해요.`
+    );
+  }
+
+  const total = countOffDays(offDays);
+
+  return (
+    <div className="events">
+      <div className="row-between">
+        <h3 className="sub-title no-top">
+          못하는 날짜 {total > 0 && <span className="muted">(합계 {total}일)</span>}
+        </h3>
+        <button onClick={add}>+ 날짜 추가</button>
+      </div>
+
+      {offDays.length === 0 && (
+        <p className="hint">
+          여행이나 일정 때문에 일일퀘스트를 못 하는 날을 추가하세요. 그날은 일일 성장치와 이벤트 수량이 들어오지 않는 걸로
+          계산해요. 종료일을 비우면 하루만 쉬는 걸로 봐요. 주간 추가 성장치는 그대로 들어온다고 가정해요.
+        </p>
+      )}
+
+      {offDays.map((o) => (
+        <div className="event-row" key={o.id}>
           <label className="field">
             <span>시작일</span>
-            <input type="date" value={e.start} onChange={(ev) => update(e.id, { start: ev.target.value })} />
+            <input type="date" value={o.start} onChange={(ev) => update(o.id, { start: ev.target.value })} />
           </label>
           <label className="field">
-            <span>종료일</span>
-            <input type="date" value={e.end} onChange={(ev) => update(e.id, { end: ev.target.value })} />
+            <span>종료일 (하루면 비워두기)</span>
+            <input type="date" value={o.end || ""} onChange={(ev) => update(o.id, { end: ev.target.value })} />
           </label>
-          <button className="danger" onClick={() => remove(e.id)}>
+          <label className="field">
+            <span>메모 (선택)</span>
+            <input value={o.note || ""} placeholder="예: 여행" onChange={(ev) => update(o.id, { note: ev.target.value })} />
+          </label>
+          <button className="danger" onClick={() => remove(o.id)}>
             삭제
           </button>
         </div>
@@ -895,6 +987,14 @@ function CompareTable({ chars, results, startDate }) {
   add(
     "등록한 이벤트",
     chars.map((c) => ({ text: `${(c.events || []).length}개` }))
+  );
+  add(
+    "못하는 날 (합계)",
+    chars.map((c) => {
+      const n = countOffDays(c.offDays || []);
+      return { text: `${n}일`, score: n };
+    }),
+    "low"
   );
 
   // 같은 행에서 가장 좋은 값 찾기 (모두 같으면 표시하지 않는다)

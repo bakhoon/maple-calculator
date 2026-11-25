@@ -35,15 +35,14 @@ export function toDateStr(date) {
  *  levelUps: 레벨업이 가능해지는 날짜 목록 [{ level, date, mesoCost }]
  */
 /**
- * 캐릭터에 입력된 이벤트 중 해당 심볼에 적용되는 유효한 것만 날짜로 변환해 돌려준다.
- * 이벤트: { symbol: "all" | 심볼 key, amount, start: "YYYY-MM-DD", end: "YYYY-MM-DD" }
+ * 이벤트: { name, start: "YYYY-MM-DD", end: "YYYY-MM-DD", amounts: { 심볼key: 하루 추가 수량 } }
+ * 해당 심볼에 적용되는 유효한 이벤트만 날짜로 변환해 돌려준다.
  */
 export function normalizeEvents(events, symbolKey) {
   const out = [];
   for (const e of events || []) {
-    if (e.symbol !== "all" && e.symbol !== symbolKey) continue;
     if (!e.start || !e.end) continue;
-    const amount = Number(e.amount);
+    const amount = Number(e.amounts && e.amounts[symbolKey]);
     if (!Number.isFinite(amount) || amount <= 0) continue;
     const start = parseDate(e.start);
     const end = parseDate(e.end);
@@ -62,20 +61,68 @@ export function eventBonusOn(events, date) {
 }
 
 /**
- * 날짜와 적용 심볼이 겹치는 이벤트 쌍을 찾는다.
- * 반환: [{ a, b, from: Date, to: Date }]  (a, b는 이벤트 객체)
+ * 못하는 날짜 범위 목록: { start, end?, note? }. end가 비어 있으면 하루짜리로 본다.
+ */
+export function normalizeOffDays(offDays) {
+  const out = [];
+  for (const o of offDays || []) {
+    if (!o.start) continue;
+    const start = parseDate(o.start);
+    const end = o.end ? parseDate(o.end) : start;
+    if (end < start) continue;
+    out.push({ start, end });
+  }
+  return out;
+}
+
+export function isOffDay(offDays, date) {
+  return offDays.some((o) => date >= o.start && date <= o.end);
+}
+
+/** 못하는 날짜가 합쳐서 며칠인지 (겹치는 날은 한 번만 센다) */
+export function countOffDays(offDays) {
+  const seen = new Set();
+  for (const o of normalizeOffDays(offDays)) {
+    for (let d = o.start; d <= o.end; d = addDays(d, 1)) seen.add(d.getTime());
+  }
+  return seen.size;
+}
+
+/**
+ * 날짜가 겹치고 같은 심볼에 둘 다 수량이 들어가는 이벤트 쌍을 찾는다.
+ * 반환: [{ a, b, from: Date, to: Date, symbols: [심볼key] }]
  */
 export function findEventOverlaps(events) {
   const valid = (events || []).filter((e) => e.start && e.end && parseDate(e.end) >= parseDate(e.start));
+  const has = (e, k) => Number(e.amounts && e.amounts[k]) > 0;
   const out = [];
   for (let i = 0; i < valid.length; i++) {
     for (let j = i + 1; j < valid.length; j++) {
       const a = valid[i];
       const b = valid[j];
-      const scopeOverlap = a.symbol === "all" || b.symbol === "all" || a.symbol === b.symbol;
-      if (!scopeOverlap) continue;
+      const keys = Object.keys({ ...(a.amounts || {}), ...(b.amounts || {}) });
+      const symbols = keys.filter((k) => has(a, k) && has(b, k));
+      if (symbols.length === 0) continue;
       const from = new Date(Math.max(parseDate(a.start).getTime(), parseDate(b.start).getTime()));
       const to = new Date(Math.min(parseDate(a.end).getTime(), parseDate(b.end).getTime()));
+      if (from <= to) out.push({ a, b, from, to, symbols });
+    }
+  }
+  return out;
+}
+
+/** 못하는 날짜끼리 날짜가 겹치는 쌍 */
+export function findOffDayOverlaps(offDays) {
+  const valid = (offDays || []).filter((o) => o.start && (!o.end || parseDate(o.end) >= parseDate(o.start)));
+  const out = [];
+  for (let i = 0; i < valid.length; i++) {
+    for (let j = i + 1; j < valid.length; j++) {
+      const a = valid[i];
+      const b = valid[j];
+      const aEnd = parseDate(a.end || a.start);
+      const bEnd = parseDate(b.end || b.start);
+      const from = new Date(Math.max(parseDate(a.start).getTime(), parseDate(b.start).getTime()));
+      const to = new Date(Math.min(aEnd.getTime(), bEnd.getTime()));
       if (from <= to) out.push({ a, b, from, to });
     }
   }
@@ -91,6 +138,7 @@ export function simulateSymbol({
   startDate,
   includeToday,
   events = [],
+  offDays = [],
 }) {
   const lvl = Math.min(Math.max(level, 1), MAX_LEVEL);
   const remainingMeso = CUM_MESO[symbolKey][MAX_LEVEL - 1] - CUM_MESO[symbolKey][lvl - 1];
@@ -130,7 +178,7 @@ export function simulateSymbol({
   for (let i = 0; i < MAX_DAYS; i++) {
     const date = addDays(startDate, i);
     if (i === 0 && !includeToday) continue;
-    total += daily + eventBonusOn(events, date);
+    if (!isOffDay(offDays, date)) total += daily + eventBonusOn(events, date);
     if (date.getDay() === WEEKLY_RESET_DAY) total += weekly;
 
     while (nextLevel <= MAX_LEVEL && total >= CUM_GROWTH[nextLevel - 1]) {
@@ -180,7 +228,16 @@ export function formatDate(date) {
  * 시작일(includeToday에 따라 당일 제외)부터 목표일까지 매일 얻는다고 가정하고,
  * 그 사이 목요일마다 들어오는 주간 보너스는 미리 빼서 계산한다.
  */
-export function requiredDaily({ level, progress, weekly, startDate, includeToday, targetDate, events = [] }) {
+export function requiredDaily({
+  level,
+  progress,
+  weekly,
+  startDate,
+  includeToday,
+  targetDate,
+  events = [],
+  offDays = [],
+}) {
   const lvl = Math.min(Math.max(level, 1), MAX_LEVEL);
   if (lvl >= MAX_LEVEL) return 0;
   const cap = NEED_GROWTH[lvl - 1] - 1;
@@ -192,8 +249,10 @@ export function requiredDaily({ level, progress, weekly, startDate, includeToday
   let eventTotal = 0;
   for (let d = new Date(startDate), i = 0; d <= targetDate; i++, d = addDays(startDate, i)) {
     if (i === 0 && !includeToday) continue;
-    dayCount++;
-    eventTotal += eventBonusOn(events, d);
+    if (!isOffDay(offDays, d)) {
+      dayCount++;
+      eventTotal += eventBonusOn(events, d);
+    }
     if (d.getDay() === WEEKLY_RESET_DAY) thursdays++;
   }
   if (dayCount <= 0) return Infinity;
