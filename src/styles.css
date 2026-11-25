@@ -690,3 +690,31 @@ th {
   margin-left: auto;
   font-size: 12px;
 }
+
+/* 넓은 화면: 페이지를 넓혀서 심볼 카드가 한 줄에 6개 들어가게 한다 */
+.app {
+  max-width: 1560px;
+}
+
+.symbols {
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+}
+
+@media (min-width: 1300px) {
+  .symbols {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+}
+
+/* 좁아진 카드 안에서는 입력 칸을 세로로 쌓는다 */
+.symbol .inputs {
+  grid-template-columns: 1fr;
+}
+
+.symbol .field span {
+  font-size: 12px;
+}
+
+.chart-grid {
+  grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
+}

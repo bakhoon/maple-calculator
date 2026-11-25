@@ -15,7 +15,6 @@ import {
 import { LevelChart, CompareChart } from "./Charts.jsx";
 import {
   simulateSymbol,
-  requiredDaily,
   normalizeExtraSteps,
   extraOn,
   normalizeOffDays,
@@ -51,7 +50,6 @@ const makeChar = (name = "캐릭터", rates = DEFAULT_RATES) => ({
   id: newId(),
   name,
   cls: "normal",
-  target: "",
   offDays: [],
   symbols: {
     cer: { on: true, level: 1, progress: 0, ...rates.cer },
@@ -443,7 +441,6 @@ function CharCard({ c, r, startDate, includeToday, extra, onChange, onSymbol, on
   const [open, setOpen] = useState(false);
   const cls = CLASS_TYPES.find((t) => t.key === c.cls);
   const ex = extraToday(extra, startDate);
-  const target = c.target ? parseDate(c.target) : null;
   const chartSeries = SYMBOLS.filter((s) => c.symbols[s.key].on).map((s) => ({
     key: s.key,
     name: s.name,
@@ -497,23 +494,6 @@ function CharCard({ c, r, startDate, includeToday, extra, onChange, onSymbol, on
       </div>
 
       <OffDayEditor offDays={c.offDays || []} onChange={(offDays) => onChange({ offDays })} />
-
-      <div className="target-row">
-        <label className="field">
-          <span>목표 날짜 (선택)</span>
-          <input
-            type="date"
-            value={c.target || ""}
-            onChange={(e) => onChange({ target: e.target.value })}
-          />
-        </label>
-        {c.target && (
-          <button onClick={() => onChange({ target: "" })}>목표 지우기</button>
-        )}
-        <span className="muted target-hint">
-          목표 날짜를 정하면 심볼마다 그날까지 하루에 얼마를 올려야 하는지 보여줘요.
-        </span>
-      </div>
 
       <div className="symbols">
         {SYMBOLS.map((s) => {
@@ -636,28 +616,6 @@ function CharCard({ c, r, startDate, includeToday, extra, onChange, onSymbol, on
                     <span>남은 메소</span>
                     <b>{formatMeso(sim.remainingMeso)}</b>
                   </div>
-                  {target && !sim.isMax && (() => {
-                    const need = requiredDaily({
-                      level: cfg.level,
-                      progress: num(cfg.progress),
-                      weekly: num(cfg.weekly),
-                      startDate,
-                      includeToday,
-                      targetDate: target,
-                      extra,
-                      offDays: normalizeOffDays(c.offDays),
-                    });
-                    const ok = sim.maxDate && sim.maxDate <= target;
-                    return (
-                      <div className={`target-result ${ok ? "ok" : "no"}`}>
-                        {need === Infinity
-                          ? "목표일이 오늘보다 앞서요"
-                          : `목표일까지 할 수 있는 날마다 ${need.toLocaleString()} 필요 (현재 ${num(cfg.daily)})`}
-                        <br />
-                        {ok ? "지금 수급량으로 달성 가능" : "지금 수급량으로는 부족"}
-                      </div>
-                    );
-                  })()}
                 </div>
               )}
             </div>
