@@ -7,8 +7,8 @@ const H = 260;
 const PAD = { l: 38, r: 16, t: 14, b: 30 };
 
 const dayDiff = (a, b) => Math.round((b.getTime() - a.getTime()) / 86400000);
-const shortDate = (d) => `${d.getMonth() + 1}/${d.getDate()}`;
-const shortYear = (d) => `${String(d.getFullYear()).slice(2)}.${d.getMonth() + 1}`;
+const shortDate = (d) => `${d.getUTCMonth() + 1}/${d.getUTCDate()}`;
+const shortYear = (d) => `${String(d.getUTCFullYear()).slice(2)}.${d.getUTCMonth() + 1}`;
 
 /**
  * 심볼별 레벨 성장 그래프 (계단식).

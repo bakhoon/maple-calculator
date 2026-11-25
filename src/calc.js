@@ -6,22 +6,29 @@ import {
   NEED_GROWTH,
 } from "./data.js";
 
-const WEEKLY_RESET_DAY = 4; // 목요일 (0=일 ... 4=목)
+// 모든 날짜는 UTC 기준(자정 0시)으로 다룬다. 사용자의 로컬 시간대는 쓰지 않는다.
+const WEEKLY_RESET_DAY = 4; // 목요일 (0=일 ... 4=목, UTC 기준)
 const MAX_DAYS = 20000;
 
+/** 지금 UTC 기준 오늘 날짜 (UTC 자정) */
+export function todayUTC() {
+  const n = new Date();
+  return new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate()));
+}
+
 export function addDays(date, n) {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate() + n);
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() + n));
 }
 
 export function parseDate(str) {
   const [y, m, d] = str.split("-").map(Number);
-  return new Date(y, m - 1, d);
+  return new Date(Date.UTC(y, m - 1, d));
 }
 
 export function toDateStr(date) {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
+  const y = date.getUTCFullYear();
+  const m = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(date.getUTCDate()).padStart(2, "0");
   return `${y}-${m}-${d}`;
 }
 
@@ -179,7 +186,7 @@ export function simulateSymbol({
     const date = addDays(startDate, i);
     if (i === 0 && !includeToday) continue;
     if (!isOffDay(offDays, date)) total += daily + eventBonusOn(events, date);
-    if (date.getDay() === WEEKLY_RESET_DAY) total += weekly;
+    if (date.getUTCDay() === WEEKLY_RESET_DAY) total += weekly;
 
     while (nextLevel <= MAX_LEVEL && total >= CUM_GROWTH[nextLevel - 1]) {
       levelUps.push({
@@ -218,9 +225,9 @@ export function formatMeso(n) {
 export function formatDate(date) {
   if (!date) return "-";
   const days = ["일", "월", "화", "수", "목", "금", "토"];
-  return `${date.getFullYear()}.${String(date.getMonth() + 1).padStart(2, "0")}.${String(
-    date.getDate()
-  ).padStart(2, "0")} (${days[date.getDay()]})`;
+  return `${date.getUTCFullYear()}.${String(date.getUTCMonth() + 1).padStart(2, "0")}.${String(
+    date.getUTCDate()
+  ).padStart(2, "0")} (${days[date.getUTCDay()]})`;
 }
 
 /**
@@ -253,7 +260,7 @@ export function requiredDaily({
       dayCount++;
       eventTotal += eventBonusOn(events, d);
     }
-    if (d.getDay() === WEEKLY_RESET_DAY) thursdays++;
+    if (d.getUTCDay() === WEEKLY_RESET_DAY) thursdays++;
   }
   if (dayCount <= 0) return Infinity;
   return Math.max(0, Math.ceil((remaining - thursdays * weekly - eventTotal) / dayCount));

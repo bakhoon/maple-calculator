@@ -222,3 +222,14 @@ assert.equal(oo.length, 1);
 assert.equal(toDateStr(oo[0].from), "2026-11-27");
 
 console.log("이벤트, 못하는 날짜 테스트 통과");
+
+// 8) UTC 기준 날짜 처리
+import { addDays, formatDate, todayUTC } from "./calc.js";
+const d0 = parseDate("2026-03-07");
+assert.equal(d0.getUTCHours(), 0);
+assert.equal(toDateStr(addDays(d0, 2)), "2026-03-09"); // 서머타임 구간에도 정확히 +2일
+assert.equal(addDays(d0, 2).getTime() - d0.getTime(), 2 * 86400000);
+assert.equal(formatDate(parseDate("2026-11-26")), "2026.11.26 (목)");
+const t0 = todayUTC();
+assert.equal(t0.getTime() % 86400000, 0);
+console.log("UTC 테스트 통과");

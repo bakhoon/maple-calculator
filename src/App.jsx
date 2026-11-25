@@ -25,6 +25,7 @@ import {
   formatMeso,
   parseDate,
   toDateStr,
+  todayUTC,
   addDays,
 } from "./calc.js";
 
@@ -143,8 +144,8 @@ export default function App() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   }, [state]);
 
-  // 항상 오늘(로컬 기준)부터 시작한다고 가정한다
-  const startDate = useMemo(() => parseDate(toDateStr(new Date())), []);
+  // 항상 오늘(UTC 기준)부터 시작한다고 가정한다
+  const startDate = useMemo(() => todayUTC(), []);
 
   const results = useMemo(() => {
     return state.chars.map((c) => {
@@ -250,14 +251,14 @@ export default function App() {
     <div className="app">
       <header className="top">
         <h1>어센틱 포스 MAX 계산기</h1>
-        <p className="sub">오늘부터 매일 꾸준히 하면 각 심볼을 언제 MAX(11레벨)까지 올릴 수 있는지 계산합니다.</p>
+        <p className="sub">오늘(UTC 기준)부터 매일 꾸준히 하면 각 심볼을 언제 MAX(11레벨)까지 올릴 수 있는지 계산합니다.</p>
       </header>
 
       <section className="card">
         <h2>공통 설정</h2>
         <div className="settings">
           <div className="today">
-            <span className="muted">기준일 (오늘)</span>
+            <span className="muted">기준일 (오늘, UTC)</span>
             <b>{formatDate(startDate)}</b>
           </div>
           <label className="check">
@@ -730,7 +731,7 @@ function RefTable() {
   );
 }
 
-const fmtShort = (d) => `${d.getMonth() + 1}.${String(d.getDate()).padStart(2, "0")}`;
+const fmtShort = (d) => `${d.getUTCMonth() + 1}.${String(d.getUTCDate()).padStart(2, "0")}`;
 const fmtRange = (from, to) =>
   from.getTime() === to.getTime() ? fmtShort(from) : `${fmtShort(from)} ~ ${fmtShort(to)}`;
 
