@@ -434,7 +434,8 @@ function CharCard({ c, r, startDate, includeToday, onChange, onSymbol, onCopy, o
 
       <EventEditor
         events={c.events || []}
-        symbols={SYMBOLS.filter((x) => c.symbols[x.key].on)}
+        symbols={SYMBOLS}
+        enabled={SYMBOLS.filter((x) => c.symbols[x.key].on).map((x) => x.key)}
         onChange={(events) => onChange({ events })}
       />
 
@@ -699,7 +700,7 @@ const fmtShort = (d) => `${d.getMonth() + 1}.${String(d.getDate()).padStart(2, "
 const fmtRange = (from, to) =>
   from.getTime() === to.getTime() ? fmtShort(from) : `${fmtShort(from)} ~ ${fmtShort(to)}`;
 
-function EventEditor({ events, symbols, onChange }) {
+function EventEditor({ events, symbols, enabled, onChange }) {
   const add = () =>
     onChange([
       ...events,
@@ -765,15 +766,14 @@ function EventEditor({ events, symbols, onChange }) {
               삭제
             </button>
           </div>
-          {symbols.length === 0 ? (
-            <p className="hint">위에서 심볼을 하나 이상 켜면 심볼별 수량을 입력할 수 있어요.</p>
-          ) : (
-            <div className="amount-row">
-              {symbols.map((x) => (
-                <label className="field amount" key={x.key}>
+          <div className="amount-row">
+            {symbols.map((x) => {
+              const on = enabled.includes(x.key);
+              return (
+                <label className={`field amount ${on ? "" : "dim"}`} key={x.key}>
                   <span>
                     <i className="dot" style={{ background: x.color }} />
-                    {x.name} 하루 +
+                    {x.name} 하루 +{on ? "" : " (꺼짐)"}
                   </span>
                   <input
                     type="number"
@@ -783,9 +783,9 @@ function EventEditor({ events, symbols, onChange }) {
                     onChange={(ev) => setAmount(e.id, x.key, ev.target.value)}
                   />
                 </label>
-              ))}
-            </div>
-          )}
+              );
+            })}
+          </div>
         </div>
       ))}
 

@@ -572,3 +572,7 @@ th {
   height: 8px;
   margin-right: 5px;
 }
+
+.field.amount.dim {
+  opacity: 0.55;
+}
