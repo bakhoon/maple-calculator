@@ -67,7 +67,7 @@ const makeChar = (name = "캐릭터", rates = DEFAULT_RATES) => ({
 
 const defaultState = () => {
   const first = makeChar("캐릭터 1");
-  return { includeToday: true, activeId: first.id, ratesVersion: RATES_VERSION, chars: [first] };
+  return { includeToday: true, activeId: first.id, ratesVersion: RATES_VERSION, sharedEvents: [], chars: [first] };
 };
 
 function loadState() {
@@ -113,6 +113,7 @@ function loadState() {
           includeToday: parsed.includeToday,
           activeId: parsed.activeId,
           ratesVersion: RATES_VERSION,
+          sharedEvents: Array.isArray(parsed.sharedEvents) ? parsed.sharedEvents : [],
           chars: parsed.chars,
         };
       }
@@ -164,7 +165,7 @@ export default function App() {
           weekly: num(cfg.weekly),
           startDate,
           includeToday: state.includeToday,
-          events: normalizeEvents(c.events, s.key),
+          events: normalizeEvents([...state.sharedEvents, ...(c.events || [])], s.key),
           offDays: normalizeOffDays(c.offDays),
         });
         perSymbol[s.key] = sim;
@@ -268,6 +269,14 @@ export default function App() {
             오늘 일일퀘스트도 아직 안 했으면 포함
           </label>
         </div>
+        <EventEditor
+          title="공통 이벤트 (모든 캐릭터에 적용)"
+          emptyHint="모든 캐릭터에 똑같이 적용되는 이벤트를 여기에 한 번만 입력하세요. 캐릭터마다 따로 있는 이벤트는 각 캐릭터 탭에서 추가해요. 기간 동안 심볼별로 하루에 더 얻는 추가 수량이 모든 캐릭터의 일일퀘스트 획득량에 더해져요."
+          events={state.sharedEvents}
+          symbols={SYMBOLS}
+          enabled={SYMBOLS.map((x) => x.key)}
+          onChange={(sharedEvents) => setState((s) => ({ ...s, sharedEvents }))}
+        />
         <p className="hint">
           캐릭터 탭마다 심볼별로 일일퀘스트 하루 획득량, 현재 레벨, 현재 보유 성장치를 입력하세요. 입력한 내용은 이
           브라우저에 자동 저장돼서 다시 열어도 그대로 남아요. (다른 컴퓨터나 다른 브라우저와는 공유되지 않아요)
@@ -298,6 +307,7 @@ export default function App() {
           r={results[activeIndex]}
           startDate={startDate}
           includeToday={state.includeToday}
+          sharedEvents={state.sharedEvents}
           onChange={(patch) => updateChar(activeChar.id, patch)}
           onSymbol={(key, patch) => updateSymbol(activeChar.id, key, patch)}
           onCopy={() => copyChar(activeChar.id)}
@@ -377,7 +387,7 @@ export default function App() {
         />
       </section>
 
-      <CompareTable chars={state.chars} results={results} startDate={startDate} />
+      <CompareTable chars={state.chars} results={results} startDate={startDate} sharedCount={state.sharedEvents.length} />
 
       <div className="actions">
         <button onClick={() => setShowTable((v) => !v)}>
@@ -393,7 +403,7 @@ export default function App() {
   );
 }
 
-function CharCard({ c, r, startDate, includeToday, onChange, onSymbol, onCopy, onRemove, canRemove }) {
+function CharCard({ c, r, startDate, includeToday, sharedEvents, onChange, onSymbol, onCopy, onRemove, canRemove }) {
   const [open, setOpen] = useState(false);
   const cls = CLASS_TYPES.find((t) => t.key === c.cls);
   const target = c.target ? parseDate(c.target) : null;
@@ -449,7 +459,14 @@ function CharCard({ c, r, startDate, includeToday, onChange, onSymbol, onCopy, o
         </span>
       </div>
 
+      {sharedEvents.length > 0 && (
+        <p className="hint shared-note">
+          공통 이벤트 {sharedEvents.length}개가 이 캐릭터에도 함께 적용되고 있어요. (위쪽 공통 설정에서 수정)
+        </p>
+      )}
+
       <EventEditor
+        shared={sharedEvents}
         events={c.events || []}
         symbols={SYMBOLS}
         enabled={SYMBOLS.filter((x) => c.symbols[x.key].on).map((x) => x.key)}
@@ -588,7 +605,7 @@ function CharCard({ c, r, startDate, includeToday, onChange, onSymbol, onCopy, o
                       startDate,
                       includeToday,
                       targetDate: target,
-                      events: normalizeEvents(c.events, s.key),
+                      events: normalizeEvents([...sharedEvents, ...(c.events || [])], s.key),
                       offDays: normalizeOffDays(c.offDays),
                     });
                     const ok = sim.maxDate && sim.maxDate <= target;
@@ -717,7 +734,15 @@ const fmtShort = (d) => `${d.getMonth() + 1}.${String(d.getDate()).padStart(2, "
 const fmtRange = (from, to) =>
   from.getTime() === to.getTime() ? fmtShort(from) : `${fmtShort(from)} ~ ${fmtShort(to)}`;
 
-function EventEditor({ events, symbols, enabled, onChange }) {
+function EventEditor({
+  events,
+  symbols,
+  enabled,
+  onChange,
+  shared = [],
+  title = "이벤트",
+  emptyHint = "이 캐릭터만의 이벤트가 있으면 추가하세요. 기간 동안 심볼별로 하루에 더 얻는 추가 수량이 일일퀘스트 획득량에 더해져서 계산돼요. 수량이 비어 있거나 0인 심볼은 적용되지 않아요.",
+}) {
   const add = () =>
     onChange([
       ...events,
@@ -743,7 +768,9 @@ function EventEditor({ events, symbols, enabled, onChange }) {
     const any = Object.values(e.amounts || {}).some((v) => Number(v) > 0);
     if (!any) warnings.push(`"${nameOf(e)}": 추가 수량이 하나도 없어서 계산에 반영되지 않아요.`);
   }
-  for (const o of findEventOverlaps(events)) {
+  const tagged = [...shared.map((e) => ({ ...e, _shared: true, name: `${e.name || "(이름 없음)"} (공통)` })), ...events];
+  for (const o of findEventOverlaps(tagged)) {
+    if (o.a._shared && o.b._shared) continue; // 공통끼리의 겹침은 공통 설정 쪽에서 알려준다
     warnings.push(
       `"${nameOf(o.a)}" 와(과) "${nameOf(o.b)}" 이벤트 날짜가 ${fmtRange(o.from, o.to)}에 겹쳐요. ` +
         `${o.symbols.map(symName).join(", ")} 심볼은 겹치는 날에 두 수량이 모두 더해져요.`
@@ -753,16 +780,11 @@ function EventEditor({ events, symbols, enabled, onChange }) {
   return (
     <div className="events">
       <div className="row-between">
-        <h3 className="sub-title no-top">이벤트</h3>
+        <h3 className="sub-title no-top">{title}</h3>
         <button onClick={add}>+ 이벤트 추가</button>
       </div>
 
-      {events.length === 0 && (
-        <p className="hint">
-          이 캐릭터만의 이벤트가 있으면 추가하세요. 기간 동안 심볼마다 하루에 더 얻는 수량이 일일퀘스트 획득량에 더해져서
-          계산돼요. 수량이 비어 있거나 0인 심볼은 적용되지 않아요.
-        </p>
-      )}
+      {events.length === 0 && <p className="hint">{emptyHint}</p>}
 
       {events.map((e) => (
         <div className="event-card" key={e.id}>
@@ -890,7 +912,7 @@ function OffDayEditor({ offDays, onChange }) {
  * 캐릭터끼리 비교하는 표. 캐릭터가 열, 항목이 행이다.
  * 각 행에서 가장 좋은 값(better: "low" 또는 "high")은 초록색으로 표시한다.
  */
-function CompareTable({ chars, results, startDate }) {
+function CompareTable({ chars, results, startDate, sharedCount = 0 }) {
   if (chars.length < 2) {
     return (
       <section className="card">
@@ -1005,7 +1027,9 @@ function CompareTable({ chars, results, startDate }) {
   );
   add(
     "등록한 이벤트",
-    chars.map((c) => ({ text: `${(c.events || []).length}개` }))
+    chars.map((c) => ({
+      text: `${(c.events || []).length + sharedCount}개${sharedCount ? ` (공통 ${sharedCount} 포함)` : ""}`,
+    }))
   );
   add(
     "못하는 날 (합계)",

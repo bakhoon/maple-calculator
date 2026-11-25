@@ -582,3 +582,13 @@ th {
 .field.amount.dim {
   opacity: 0.55;
 }
+
+.shared-note {
+  margin: 0 0 12px;
+  color: #b9ceff;
+}
+
+.settings + .events,
+.card > .events {
+  margin-top: 14px;
+}
