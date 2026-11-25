@@ -766,6 +766,7 @@ function EventEditor({ events, symbols, enabled, onChange }) {
               삭제
             </button>
           </div>
+          <div className="amount-title">추가 수량 <span className="muted">(심볼별, 하루 기준)</span></div>
           <div className="amount-row">
             {symbols.map((x) => {
               const on = enabled.includes(x.key);
@@ -773,7 +774,8 @@ function EventEditor({ events, symbols, enabled, onChange }) {
                 <label className={`field amount ${on ? "" : "dim"}`} key={x.key}>
                   <span>
                     <i className="dot" style={{ background: x.color }} />
-                    {x.name} 하루 +{on ? "" : " (꺼짐)"}
+                    {x.name}
+                    {on ? "" : " (꺼짐)"}
                   </span>
                   <input
                     type="number"
